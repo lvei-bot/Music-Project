@@ -1,0 +1,8 @@
+{
+  "name": "Diatonic Chord Practice & Trainer",
+  "description": "Interactive music practice tools for mastering diatonic chord numbers and scale degrees, featuring hands-free instrument trainer and typing quiz modes.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

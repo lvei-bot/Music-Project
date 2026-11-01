@@ -1,0 +1,1466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diatonic Chord Practice & Trainer</title>
+  <meta name="description" content="Interactive music practice tools for mastering diatonic chord numbers and scale degrees, featuring hands-free instrument trainer and typing quiz modes.">
+  <meta property="og:title" content="Diatonic Chord Practice & Trainer">
+  <meta property="og:description" content="Interactive music practice tools for mastering diatonic chord numbers and scale degrees, featuring hands-free instrument trainer and typing quiz modes.">
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0d10;
+      --surface: #14171d;
+      --surface-2: #1b2028;
+      --surface-3: #232a34;
+      --text: #f5f7fb;
+      --muted: #9faabc;
+      --line: rgba(255, 255, 255, 0.13);
+      --accent: #41d99d;
+      --accent-2: #4bb7ff;
+      --gold: #f0c15b;
+      --danger: #ff6f86;
+      --shadow: 0 20px 60px rgba(0, 0, 0, 0.38);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html {
+      min-height: 100%;
+      background: var(--bg);
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 240px),
+        linear-gradient(135deg, #0b0d10 0%, #10151c 44%, #0f1116 100%);
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.025) 1px, transparent 1px);
+      background-size: 48px 48px;
+      mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent 78%);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      border: 0;
+      cursor: pointer;
+    }
+
+    .app {
+      position: relative;
+      width: min(1240px, calc(100% - 28px));
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 24px 0;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+    }
+
+    .brand-mark {
+      display: grid;
+      width: 48px;
+      height: 48px;
+      flex: 0 0 auto;
+      place-items: center;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: linear-gradient(135deg, rgba(65, 217, 157, 0.2), rgba(75, 183, 255, 0.12));
+      color: var(--accent);
+      font-size: 1.6rem;
+      font-weight: 900;
+      box-shadow: var(--shadow);
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin-top: 0;
+    }
+
+    h1 {
+      margin-bottom: 4px;
+      font-size: clamp(1.45rem, 3vw, 2.55rem);
+      line-height: 1.05;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 0.98rem;
+    }
+
+    .icon-button,
+    .primary-button,
+    .quiet-button,
+    .danger-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 9px;
+      min-height: 44px;
+      border-radius: 8px;
+      font-weight: 850;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease, opacity 160ms ease;
+    }
+
+    .icon-button {
+      width: 44px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.055);
+      color: var(--text);
+    }
+
+    .primary-button {
+      min-width: 154px;
+      padding: 0 18px;
+      color: #06100d;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 16px 38px rgba(65, 217, 157, 0.2);
+    }
+
+    .quiet-button {
+      padding: 0 16px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+    }
+
+    .danger-button {
+      padding: 0 16px;
+      border: 1px solid rgba(255, 111, 134, 0.45);
+      background: rgba(255, 111, 134, 0.12);
+      color: #ffd7de;
+    }
+
+    .icon-button:hover,
+    .primary-button:hover,
+    .quiet-button:hover,
+    .danger-button:hover {
+      transform: translateY(-1px);
+    }
+
+    .icon-button:disabled,
+    .primary-button:disabled,
+    .quiet-button:disabled,
+    .danger-button:disabled {
+      cursor: not-allowed;
+      opacity: 0.48;
+      transform: none;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(330px, 0.72fr) minmax(0, 1.28fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(20, 23, 29, 0.9);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(18px);
+    }
+
+    .setup-panel {
+      padding: 18px;
+    }
+
+    .section-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+
+    .section-title h2,
+    .section-title h3 {
+      margin: 0;
+      font-size: 1rem;
+      letter-spacing: 0;
+    }
+
+    .mini-label {
+      color: var(--muted);
+      font-size: 0.78rem;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .form-grid {
+      display: grid;
+      gap: 14px;
+    }
+
+    .field {
+      min-width: 0;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    label,
+    .field-label {
+      display: block;
+      margin-bottom: 8px;
+      color: #dce4ef;
+      font-size: 0.88rem;
+      font-weight: 850;
+    }
+
+    select,
+    input[type="number"] {
+      width: 100%;
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      outline: none;
+      background: #0f1319;
+      color: var(--text);
+      padding: 0 12px;
+      transition: border-color 160ms ease, box-shadow 160ms ease;
+    }
+
+    select:focus,
+    input[type="number"]:focus {
+      border-color: rgba(65, 217, 157, 0.78);
+      box-shadow: 0 0 0 4px rgba(65, 217, 157, 0.12);
+    }
+
+    .choice-grid,
+    .degree-grid {
+      display: grid;
+      gap: 8px;
+    }
+
+    .choice-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .choice-grid.three {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .degree-grid {
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+
+    .choice,
+    .degree-choice,
+    .toggle-line {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.045);
+      color: #dce4ef;
+      font-size: 0.9rem;
+      font-weight: 850;
+      text-align: center;
+      cursor: pointer;
+      transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+      user-select: none;
+    }
+
+    .choice input,
+    .degree-choice input,
+    .toggle-line input {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .choice:has(input:checked),
+    .degree-choice:has(input:checked),
+    .toggle-line:has(input:checked) {
+      border-color: rgba(65, 217, 157, 0.82);
+      background: linear-gradient(135deg, rgba(65, 217, 157, 0.2), rgba(75, 183, 255, 0.1));
+      color: #ffffff;
+    }
+
+    .choice:hover,
+    .degree-choice:hover,
+    .toggle-line:hover {
+      transform: translateY(-1px);
+    }
+
+    .toggle-stack {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .toggle-line {
+      justify-content: space-between;
+      padding: 0 12px;
+      text-align: left;
+    }
+
+    .switch-dot {
+      width: 16px;
+      height: 16px;
+      border: 1px solid rgba(255, 255, 255, 0.24);
+      border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1);
+    }
+
+    .toggle-line:has(input:checked) .switch-dot {
+      border-color: transparent;
+      background: var(--accent);
+      box-shadow: 0 0 0 5px rgba(65, 217, 157, 0.12);
+    }
+
+    .hint {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 0.82rem;
+      line-height: 1.45;
+    }
+
+    .key-map {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 6px;
+      margin-top: 10px;
+    }
+
+    .map-cell {
+      min-width: 0;
+      padding: 8px 5px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.04);
+      text-align: center;
+    }
+
+    .map-cell span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-weight: 850;
+    }
+
+    .map-cell strong {
+      display: block;
+      margin-top: 3px;
+      overflow-wrap: anywhere;
+      font-size: 0.88rem;
+    }
+
+    .setup-actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .stage-panel {
+      min-height: calc(100vh - 126px);
+      overflow: hidden;
+    }
+
+    .status-strip {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      border-bottom: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    .stat {
+      min-width: 0;
+      padding: 14px 16px;
+      border-right: 1px solid var(--line);
+    }
+
+    .stat:last-child {
+      border-right: 0;
+    }
+
+    .stat span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.75rem;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .stat strong {
+      display: block;
+      margin-top: 5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-size: clamp(1rem, 2.3vw, 1.45rem);
+    }
+
+    .progress-track {
+      height: 10px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .progress-bar {
+      width: 0%;
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2), var(--gold));
+      transition: width 180ms linear;
+    }
+
+    .practice-stage {
+      position: relative;
+      display: grid;
+      min-height: calc(100vh - 290px);
+      place-items: center;
+      padding: clamp(22px, 4vw, 48px);
+    }
+
+    .degree-display {
+      display: grid;
+      width: min(650px, 100%);
+      min-height: 390px;
+      place-items: center;
+      text-align: center;
+    }
+
+    .degree-card {
+      width: 100%;
+      padding: clamp(22px, 5vw, 44px);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: 8px;
+      background:
+        linear-gradient(150deg, rgba(65, 217, 157, 0.12), rgba(75, 183, 255, 0.08)),
+        rgba(255, 255, 255, 0.035);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    }
+
+    .degree-card.changing {
+      animation: changeIn 360ms ease both;
+    }
+
+    .degree-label {
+      color: var(--muted);
+      font-size: clamp(0.84rem, 2vw, 1rem);
+      font-weight: 900;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .degree-number {
+      margin: 8px 0 6px;
+      font-size: clamp(8rem, 28vw, 18rem);
+      font-weight: 950;
+      line-height: 0.9;
+      letter-spacing: 0;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .degree-meta {
+      min-height: 34px;
+      color: #dfe8f5;
+      font-size: clamp(1.05rem, 3vw, 1.75rem);
+      font-weight: 850;
+    }
+
+    .reveal {
+      min-height: 48px;
+      margin-top: 18px;
+      color: var(--gold);
+      font-size: clamp(1.35rem, 5vw, 3rem);
+      font-weight: 950;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .countdown-ring {
+      position: absolute;
+      inset: 22px;
+      pointer-events: none;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+    }
+
+    .countdown-ring::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: conic-gradient(from -90deg, rgba(65, 217, 157, 0.42) var(--chord-progress, 0%), transparent 0);
+      mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+      mask-composite: exclude;
+      padding: 3px;
+      opacity: 0.9;
+    }
+
+    .session-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 16px;
+      border-top: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .empty-state,
+    .summary-screen {
+      display: grid;
+      min-height: calc(100vh - 220px);
+      place-items: center;
+      padding: 38px;
+      text-align: center;
+    }
+
+    .empty-state h2,
+    .summary-screen h2 {
+      margin-bottom: 10px;
+      font-size: clamp(1.7rem, 4vw, 3rem);
+      letter-spacing: 0;
+    }
+
+    .empty-state p,
+    .summary-screen p {
+      max-width: 560px;
+      margin: 0 auto;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+      width: min(720px, 100%);
+      margin: 24px auto 0;
+    }
+
+    .summary-box {
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.045);
+    }
+
+    .summary-box span {
+      display: block;
+      color: var(--muted);
+      font-size: 0.76rem;
+      font-weight: 850;
+      text-transform: uppercase;
+    }
+
+    .summary-box strong {
+      display: block;
+      margin-top: 6px;
+      font-size: 1.45rem;
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    @keyframes changeIn {
+      from {
+        opacity: 0;
+        transform: scale(0.985) translateY(8px);
+      }
+      to {
+        opacity: 1;
+        transform: scale(1) translateY(0);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+
+      .stage-panel {
+        min-height: auto;
+      }
+
+      .practice-stage {
+        min-height: 520px;
+      }
+    }
+
+    @media (max-width: 700px) {
+      .app {
+        width: min(100% - 20px, 1240px);
+        padding: 16px 0;
+      }
+
+      .topbar {
+        align-items: flex-start;
+      }
+
+      .brand-mark {
+        width: 42px;
+        height: 42px;
+      }
+
+      .split,
+      .choice-grid,
+      .choice-grid.three,
+      .toggle-stack,
+      .status-strip,
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .degree-grid,
+      .key-map {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .stat {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .stat:last-child {
+        border-bottom: 0;
+      }
+
+      .practice-stage {
+        min-height: 430px;
+        padding: 14px;
+      }
+
+      .degree-display {
+        min-height: 330px;
+      }
+
+      .countdown-ring {
+        inset: 12px;
+      }
+
+      .setup-actions,
+      .session-controls {
+        display: grid;
+      }
+
+      .primary-button,
+      .quiet-button,
+      .danger-button {
+        width: 100%;
+      }
+    }
+
+    .app-nav {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px clamp(16px, 4vw, 32px);
+      background: rgba(11, 13, 16, 0.94);
+      border-bottom: 1px solid var(--line);
+      backdrop-filter: blur(16px);
+      font-size: 0.88rem;
+    }
+
+    .app-nav-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-weight: 850;
+      letter-spacing: 0.04em;
+      color: var(--text);
+    }
+
+    .app-nav-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 10px var(--accent);
+    }
+
+    .app-nav-links {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .app-nav-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 14px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-weight: 750;
+      font-size: 0.85rem;
+      color: var(--muted);
+      border: 1px solid transparent;
+      transition: all 160ms ease;
+    }
+
+    .app-nav-link:hover {
+      color: var(--text);
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .app-nav-link.active {
+      color: #06100d;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-color: transparent;
+      box-shadow: 0 4px 16px rgba(65, 217, 157, 0.25);
+    }
+  </style>
+</head>
+<body>
+  <nav class="app-nav" aria-label="Mode Navigation">
+    <div class="app-nav-brand">
+      <span class="app-nav-dot"></span>
+      <span>Music Projects</span>
+    </div>
+    <div class="app-nav-links">
+      <a href="/trainer" class="app-nav-link active" title="Hands-free auto-advancing chord degree trainer">🎸 Instrument Trainer</a>
+      <a href="/practice" class="app-nav-link" title="Interactive chord and number recall typing quiz">✍️ No-Instrument Quiz</a>
+    </div>
+  </nav>
+  <main class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">I</div>
+        <div>
+          <h1>Diatonic Chord Number Trainer</h1>
+          <p class="subtitle">Auto-advancing chord degree practice for players at the instrument.</p>
+        </div>
+      </div>
+      <button class="icon-button" id="fullscreenBtn" type="button" title="Fullscreen (F)" aria-label="Fullscreen">FS</button>
+    </header>
+
+    <section class="layout" aria-label="Chord number trainer">
+      <aside class="panel setup-panel">
+        <div class="section-title">
+          <h2>Session Setup</h2>
+          <span class="mini-label" id="saveStatus">Saved</span>
+        </div>
+
+        <form class="form-grid" id="settingsForm">
+          <div class="field">
+            <label for="keySelect">Key</label>
+            <select id="keySelect"></select>
+            <div class="key-map" id="keyMap" aria-label="Selected key chord map"></div>
+          </div>
+
+          <div class="split">
+            <div class="field">
+              <label for="sessionLength">Session length</label>
+              <select id="sessionLength">
+                <option value="60">1 minute</option>
+                <option value="180">3 minutes</option>
+                <option value="300">5 minutes</option>
+                <option value="600">10 minutes</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="field" id="customSessionField">
+              <label for="customSession">Minutes</label>
+              <input id="customSession" type="number" min="0.25" max="120" step="0.25" value="2">
+            </div>
+          </div>
+
+          <div class="split">
+            <div class="field">
+              <label for="chordTime">Time per chord</label>
+              <select id="chordTime">
+                <option value="1">1 second</option>
+                <option value="2">2 seconds</option>
+                <option value="3" selected>3 seconds</option>
+                <option value="5">5 seconds</option>
+                <option value="custom">Custom</option>
+              </select>
+            </div>
+            <div class="field" id="customChordField">
+              <label for="customChordTime">Seconds</label>
+              <input id="customChordTime" type="number" min="0.5" max="60" step="0.5" value="4">
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Practice mode</span>
+            <div class="choice-grid three">
+              <label class="choice">
+                <input type="radio" name="practiceMode" value="numbers" checked>
+                Numbers
+              </label>
+              <label class="choice">
+                <input type="radio" name="practiceMode" value="roman">
+                + Roman
+              </label>
+              <label class="choice">
+                <input type="radio" name="practiceMode" value="quality">
+                + Quality
+              </label>
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Chord numbers</span>
+            <div class="degree-grid" id="degreeGrid"></div>
+            <p class="hint" id="degreeHint">All selected numbers can appear in the session.</p>
+          </div>
+
+          <div class="field">
+            <span class="field-label">Options</span>
+            <div class="toggle-stack">
+              <label class="toggle-line">
+                <input id="allowRepeats" type="checkbox" checked>
+                Repeats
+                <span class="switch-dot" aria-hidden="true"></span>
+              </label>
+              <label class="toggle-line">
+                <input id="showReveal" type="checkbox">
+                Reveal names
+                <span class="switch-dot" aria-hidden="true"></span>
+              </label>
+              <label class="toggle-line">
+                <input id="countdownVisual" type="checkbox" checked>
+                Countdown
+                <span class="switch-dot" aria-hidden="true"></span>
+              </label>
+              <label class="toggle-line">
+                <input id="soundCue" type="checkbox">
+                Sound cue
+                <span class="switch-dot" aria-hidden="true"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="setup-actions">
+            <button class="primary-button" id="startBtn" type="submit">Start Session</button>
+            <button class="quiet-button" id="resetSettingsBtn" type="button">Reset Settings</button>
+          </div>
+        </form>
+      </aside>
+
+      <section class="panel stage-panel" aria-live="polite">
+        <div class="status-strip">
+          <div class="stat">
+            <span>Key</span>
+            <strong id="currentKey">Cmaj</strong>
+          </div>
+          <div class="stat">
+            <span>Time</span>
+            <strong id="timeRemaining">00:00</strong>
+          </div>
+          <div class="stat">
+            <span>Shown</span>
+            <strong id="chordsShown">0</strong>
+          </div>
+          <div class="stat">
+            <span>Progress</span>
+            <strong id="progressPercent">0%</strong>
+          </div>
+        </div>
+        <div class="progress-track" aria-hidden="true">
+          <div class="progress-bar" id="sessionProgress"></div>
+        </div>
+
+        <div class="empty-state" id="emptyState">
+          <div>
+            <h2>Ready when you are.</h2>
+            <p>Pick a key, set the pace, and let the screen call the numbers while your hands do the work.</p>
+          </div>
+        </div>
+
+        <div class="practice-stage hidden" id="practiceStage">
+          <div class="countdown-ring" id="countdownRing" aria-hidden="true"></div>
+          <div class="degree-display">
+            <div class="degree-card" id="degreeCard">
+              <div class="degree-label" id="degreeLabel">Chord Number</div>
+              <div class="degree-number" id="degreeNumber">1</div>
+              <div class="degree-meta" id="degreeMeta"></div>
+              <div class="reveal" id="revealText"></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="summary-screen hidden" id="summaryScreen">
+          <div>
+            <h2>Session complete</h2>
+            <p id="summaryText">Nice work. Your practice run is ready to review.</p>
+            <div class="summary-grid">
+              <div class="summary-box">
+                <span>Key</span>
+                <strong id="summaryKey">Cmaj</strong>
+              </div>
+              <div class="summary-box">
+                <span>Duration</span>
+                <strong id="summaryDuration">0:00</strong>
+              </div>
+              <div class="summary-box">
+                <span>Chords</span>
+                <strong id="summaryChords">0</strong>
+              </div>
+              <div class="summary-box">
+                <span>Pace</span>
+                <strong id="summaryPace">0s</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="session-controls">
+          <button class="quiet-button" id="pauseBtn" type="button" disabled>Pause</button>
+          <button class="quiet-button" id="resumeBtn" type="button" disabled>Resume</button>
+          <button class="quiet-button" id="restartBtn" type="button" disabled>Restart</button>
+          <button class="danger-button" id="endBtn" type="button" disabled>End Session</button>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const CHORDS_BY_KEY = {
+      Cmaj: ["Cmaj", "Dmin", "Emin", "Fmaj", "Gmaj", "Amin", "Bdim"],
+      Dmaj: ["Dmaj", "Emin", "F#min", "Gmaj", "Amaj", "Bmin", "C#dim"],
+      Gmaj: ["Gmaj", "Amin", "Bmin", "Cmaj", "Dmaj", "Emin", "F#dim"],
+      Amaj: ["Amaj", "Bmin", "C#min", "Dmaj", "Emaj", "F#min", "G#dim"],
+      Emaj: ["Emaj", "F#min", "G#min", "Amaj", "Bmaj", "C#min", "D#dim"],
+      Bmaj: ["Bmaj", "C#min", "D#min", "Emaj", "F#maj", "G#min", "A#dim"],
+      Fmaj: ["Fmaj", "Gmin", "Amin", "Bbmaj", "Cmaj", "Dmin", "Edim"],
+      Amin: ["Amin", "Bdim", "Cmaj", "Dmin", "Emin", "Fmaj", "Gmaj"],
+      Emin: ["Emin", "F#dim", "Gmaj", "Amin", "Bmin", "Cmaj", "Dmaj"],
+      Bmin: ["Bmin", "C#dim", "Dmaj", "Emin", "F#min", "Gmaj", "Amaj"],
+      "F#min": ["F#min", "G#dim", "Amaj", "Bmin", "C#min", "Dmaj", "Emaj"],
+      "C#min": ["C#min", "D#dim", "Emaj", "F#min", "G#min", "Amaj", "Bmaj"],
+      "G#min": ["G#min", "A#dim", "Bmaj", "C#min", "D#min", "Emaj", "F#maj"],
+      Dmin: ["Dmin", "Edim", "Fmaj", "Gmin", "Amin", "Bbmaj", "Cmaj"]
+    };
+
+    const ROMAN_BY_QUALITY = {
+      Major: ["I", "II", "III", "IV", "V", "VI", "VII"],
+      Minor: ["i", "ii", "iii", "iv", "v", "vi", "vii"],
+      Diminished: ["i dim", "ii dim", "iii dim", "iv dim", "v dim", "vi dim", "vii dim"]
+    };
+
+    const DEFAULT_SETTINGS = {
+      key: "Cmaj",
+      sessionLength: "180",
+      customSession: 2,
+      chordTime: "3",
+      customChordTime: 4,
+      practiceMode: "numbers",
+      allowRepeats: true,
+      showReveal: false,
+      countdownVisual: true,
+      soundCue: false,
+      degrees: [1, 2, 3, 4, 5, 6, 7]
+    };
+
+    const els = {
+      settingsForm: document.querySelector("#settingsForm"),
+      keySelect: document.querySelector("#keySelect"),
+      keyMap: document.querySelector("#keyMap"),
+      sessionLength: document.querySelector("#sessionLength"),
+      customSession: document.querySelector("#customSession"),
+      customSessionField: document.querySelector("#customSessionField"),
+      chordTime: document.querySelector("#chordTime"),
+      customChordTime: document.querySelector("#customChordTime"),
+      customChordField: document.querySelector("#customChordField"),
+      degreeGrid: document.querySelector("#degreeGrid"),
+      degreeHint: document.querySelector("#degreeHint"),
+      allowRepeats: document.querySelector("#allowRepeats"),
+      showReveal: document.querySelector("#showReveal"),
+      countdownVisual: document.querySelector("#countdownVisual"),
+      soundCue: document.querySelector("#soundCue"),
+      saveStatus: document.querySelector("#saveStatus"),
+      fullscreenBtn: document.querySelector("#fullscreenBtn"),
+      resetSettingsBtn: document.querySelector("#resetSettingsBtn"),
+      emptyState: document.querySelector("#emptyState"),
+      practiceStage: document.querySelector("#practiceStage"),
+      summaryScreen: document.querySelector("#summaryScreen"),
+      currentKey: document.querySelector("#currentKey"),
+      timeRemaining: document.querySelector("#timeRemaining"),
+      chordsShown: document.querySelector("#chordsShown"),
+      progressPercent: document.querySelector("#progressPercent"),
+      sessionProgress: document.querySelector("#sessionProgress"),
+      countdownRing: document.querySelector("#countdownRing"),
+      degreeCard: document.querySelector("#degreeCard"),
+      degreeLabel: document.querySelector("#degreeLabel"),
+      degreeNumber: document.querySelector("#degreeNumber"),
+      degreeMeta: document.querySelector("#degreeMeta"),
+      revealText: document.querySelector("#revealText"),
+      pauseBtn: document.querySelector("#pauseBtn"),
+      resumeBtn: document.querySelector("#resumeBtn"),
+      restartBtn: document.querySelector("#restartBtn"),
+      endBtn: document.querySelector("#endBtn"),
+      summaryText: document.querySelector("#summaryText"),
+      summaryKey: document.querySelector("#summaryKey"),
+      summaryDuration: document.querySelector("#summaryDuration"),
+      summaryChords: document.querySelector("#summaryChords"),
+      summaryPace: document.querySelector("#summaryPace")
+    };
+
+    const state = {
+      status: "idle",
+      settings: { ...DEFAULT_SETTINGS },
+      startedAt: 0,
+      pausedAt: 0,
+      sessionEndAt: 0,
+      chordEndAt: 0,
+      chordStartedAt: 0,
+      remainingOnPause: 0,
+      chordRemainingOnPause: 0,
+      currentDegree: null,
+      previousDegree: null,
+      shown: 0,
+      rafId: null,
+      revealTimer: null,
+      audioContext: null
+    };
+
+    function clampNumber(value, min, max, fallback) {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return fallback;
+      return Math.min(max, Math.max(min, number));
+    }
+
+    function getQuality(chordName) {
+      if (chordName.endsWith("dim")) return "Diminished";
+      if (chordName.endsWith("min")) return "Minor";
+      return "Major";
+    }
+
+    function getRoman(degree, chordName) {
+      const quality = getQuality(chordName);
+      return ROMAN_BY_QUALITY[quality][degree - 1];
+    }
+
+    function formatTime(ms) {
+      const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+      const minutes = Math.floor(totalSeconds / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    }
+
+    function readSettings() {
+      const degrees = [...document.querySelectorAll("input[name='degree']:checked")]
+        .map((input) => Number(input.value));
+
+      return {
+        key: els.keySelect.value,
+        sessionLength: els.sessionLength.value,
+        customSession: clampNumber(els.customSession.value, 0.25, 120, DEFAULT_SETTINGS.customSession),
+        chordTime: els.chordTime.value,
+        customChordTime: clampNumber(els.customChordTime.value, 0.5, 60, DEFAULT_SETTINGS.customChordTime),
+        practiceMode: document.querySelector("input[name='practiceMode']:checked").value,
+        allowRepeats: els.allowRepeats.checked,
+        showReveal: els.showReveal.checked,
+        countdownVisual: els.countdownVisual.checked,
+        soundCue: els.soundCue.checked,
+        degrees: degrees.length ? degrees : [...DEFAULT_SETTINGS.degrees]
+      };
+    }
+
+    function getSessionDurationMs(settings) {
+      const seconds = settings.sessionLength === "custom"
+        ? settings.customSession * 60
+        : Number(settings.sessionLength);
+      return Math.max(1000, seconds * 1000);
+    }
+
+    function getChordDurationMs(settings) {
+      const seconds = settings.chordTime === "custom"
+        ? settings.customChordTime
+        : Number(settings.chordTime);
+      return Math.max(500, seconds * 1000);
+    }
+
+    function saveSettings() {
+      const settings = readSettings();
+      localStorage.setItem("diatonicChordTrainerSettings", JSON.stringify(settings));
+      state.settings = settings;
+      els.saveStatus.textContent = "Saved";
+      window.setTimeout(() => {
+        els.saveStatus.textContent = "Saved";
+      }, 500);
+    }
+
+    function loadSettings() {
+      try {
+        const saved = JSON.parse(localStorage.getItem("diatonicChordTrainerSettings"));
+        if (!saved || typeof saved !== "object") return { ...DEFAULT_SETTINGS };
+        return { ...DEFAULT_SETTINGS, ...saved };
+      } catch {
+        return { ...DEFAULT_SETTINGS };
+      }
+    }
+
+    function applySettings(settings) {
+      els.keySelect.value = settings.key in CHORDS_BY_KEY ? settings.key : DEFAULT_SETTINGS.key;
+      els.sessionLength.value = settings.sessionLength;
+      els.customSession.value = settings.customSession;
+      els.chordTime.value = settings.chordTime;
+      els.customChordTime.value = settings.customChordTime;
+      document.querySelector(`input[name='practiceMode'][value='${settings.practiceMode}']`).checked = true;
+      els.allowRepeats.checked = Boolean(settings.allowRepeats);
+      els.showReveal.checked = Boolean(settings.showReveal);
+      els.countdownVisual.checked = Boolean(settings.countdownVisual);
+      els.soundCue.checked = Boolean(settings.soundCue);
+      document.querySelectorAll("input[name='degree']").forEach((input) => {
+        input.checked = settings.degrees.includes(Number(input.value));
+      });
+      toggleCustomFields();
+      renderKeyMap();
+      updateDegreeHint();
+      state.settings = readSettings();
+    }
+
+    function populateControls() {
+      Object.keys(CHORDS_BY_KEY).forEach((keyName) => {
+        const option = document.createElement("option");
+        option.value = keyName;
+        option.textContent = keyName;
+        els.keySelect.append(option);
+      });
+
+      for (let degree = 1; degree <= 7; degree += 1) {
+        const label = document.createElement("label");
+        label.className = "degree-choice";
+        label.innerHTML = `<input type="checkbox" name="degree" value="${degree}" checked>${degree}`;
+        els.degreeGrid.append(label);
+      }
+    }
+
+    function renderKeyMap() {
+      const chords = CHORDS_BY_KEY[els.keySelect.value];
+      els.keyMap.innerHTML = "";
+      chords.forEach((chord, index) => {
+        const cell = document.createElement("div");
+        cell.className = "map-cell";
+        cell.innerHTML = `<span>${index + 1}</span><strong>${chord}</strong>`;
+        els.keyMap.append(cell);
+      });
+      els.currentKey.textContent = els.keySelect.value;
+    }
+
+    function toggleCustomFields() {
+      els.customSessionField.classList.toggle("hidden", els.sessionLength.value !== "custom");
+      els.customChordField.classList.toggle("hidden", els.chordTime.value !== "custom");
+    }
+
+    function updateDegreeHint() {
+      const degrees = [...document.querySelectorAll("input[name='degree']:checked")].map((input) => input.value);
+      els.degreeHint.textContent = degrees.length
+        ? `Active numbers: ${degrees.join(", ")}`
+        : "At least one number is needed. Number 1 will be used if none are selected.";
+    }
+
+    function setStage(view) {
+      els.emptyState.classList.toggle("hidden", view !== "empty");
+      els.practiceStage.classList.toggle("hidden", view !== "practice");
+      els.summaryScreen.classList.toggle("hidden", view !== "summary");
+    }
+
+    function setControls() {
+      const running = state.status === "running";
+      const paused = state.status === "paused";
+      const active = running || paused;
+      els.pauseBtn.disabled = !running;
+      els.resumeBtn.disabled = !paused;
+      els.restartBtn.disabled = !active && state.status !== "finished";
+      els.endBtn.disabled = !active;
+    }
+
+    function chooseNextDegree() {
+      const pool = state.settings.degrees.length ? state.settings.degrees : [1];
+      if (pool.length === 1 || state.settings.allowRepeats) {
+        return pool[Math.floor(Math.random() * pool.length)];
+      }
+
+      const filteredPool = pool.filter((degree) => degree !== state.previousDegree);
+      return filteredPool[Math.floor(Math.random() * filteredPool.length)];
+    }
+
+    function playCue() {
+      if (!state.settings.soundCue) return;
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      state.audioContext ||= new AudioContext();
+      const context = state.audioContext;
+      const oscillator = context.createOscillator();
+      const gain = context.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 880;
+      gain.gain.setValueAtTime(0.0001, context.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.11);
+      oscillator.connect(gain).connect(context.destination);
+      oscillator.start();
+      oscillator.stop(context.currentTime + 0.12);
+    }
+
+    function renderDegree(degree) {
+      const chord = CHORDS_BY_KEY[state.settings.key][degree - 1];
+      const quality = getQuality(chord);
+      els.degreeNumber.textContent = degree;
+      els.degreeLabel.textContent = "Chord Number";
+      els.revealText.textContent = "";
+      els.revealText.classList.remove("visible");
+
+      if (state.settings.practiceMode === "roman") {
+        els.degreeMeta.textContent = getRoman(degree, chord);
+      } else if (state.settings.practiceMode === "quality") {
+        els.degreeMeta.textContent = quality;
+      } else {
+        els.degreeMeta.textContent = "";
+      }
+
+      els.degreeCard.classList.remove("changing");
+      void els.degreeCard.offsetWidth;
+      els.degreeCard.classList.add("changing");
+      playCue();
+    }
+
+    function showRevealThenAdvance() {
+      const degree = state.currentDegree;
+      const chord = CHORDS_BY_KEY[state.settings.key][degree - 1];
+      els.revealText.textContent = chord;
+      els.revealText.classList.add("visible");
+      state.chordEndAt = Number.POSITIVE_INFINITY;
+      state.revealTimer = window.setTimeout(() => {
+        state.revealTimer = null;
+        nextChord();
+      }, 650);
+    }
+
+    function nextChord() {
+      window.clearTimeout(state.revealTimer);
+      if (state.status !== "running") return;
+      if (performance.now() >= state.sessionEndAt) {
+        finishSession();
+        return;
+      }
+
+      const degree = chooseNextDegree();
+      state.previousDegree = state.currentDegree;
+      state.currentDegree = degree;
+      state.shown += 1;
+      state.chordStartedAt = performance.now();
+      state.chordEndAt = state.chordStartedAt + getChordDurationMs(state.settings);
+      renderDegree(degree);
+    }
+
+    function updateLoop(now = performance.now()) {
+      if (state.status !== "running") return;
+
+      const totalDuration = getSessionDurationMs(state.settings);
+      const remaining = state.sessionEndAt - now;
+      const elapsed = totalDuration - remaining;
+      const progress = Math.min(1, Math.max(0, elapsed / totalDuration));
+      const chordProgress = Math.min(1, Math.max(0, (now - state.chordStartedAt) / getChordDurationMs(state.settings)));
+
+      els.timeRemaining.textContent = formatTime(remaining);
+      els.chordsShown.textContent = state.shown;
+      els.progressPercent.textContent = `${Math.round(progress * 100)}%`;
+      els.sessionProgress.style.width = `${progress * 100}%`;
+      els.countdownRing.style.setProperty("--chord-progress", state.settings.countdownVisual ? `${chordProgress * 100}%` : "0%");
+
+      if (remaining <= 0) {
+        finishSession();
+        return;
+      }
+
+      if (now >= state.chordEndAt) {
+        if (state.settings.showReveal) {
+          showRevealThenAdvance();
+          state.rafId = window.requestAnimationFrame(updateLoop);
+          return;
+        }
+        nextChord();
+      }
+
+      state.rafId = window.requestAnimationFrame(updateLoop);
+    }
+
+    function startSession() {
+      state.settings = readSettings();
+      saveSettings();
+      window.cancelAnimationFrame(state.rafId);
+      window.clearTimeout(state.revealTimer);
+
+      const now = performance.now();
+      state.status = "running";
+      state.startedAt = now;
+      state.sessionEndAt = now + getSessionDurationMs(state.settings);
+      state.previousDegree = null;
+      state.currentDegree = null;
+      state.shown = 0;
+      els.currentKey.textContent = state.settings.key;
+      els.sessionProgress.style.width = "0%";
+      els.progressPercent.textContent = "0%";
+      setStage("practice");
+      setControls();
+      nextChord();
+      updateLoop();
+    }
+
+    function pauseSession() {
+      if (state.status !== "running") return;
+      const now = performance.now();
+      state.status = "paused";
+      state.remainingOnPause = state.sessionEndAt - now;
+      state.chordRemainingOnPause = state.chordEndAt - now;
+      window.cancelAnimationFrame(state.rafId);
+      setControls();
+    }
+
+    function resumeSession() {
+      if (state.status !== "paused") return;
+      const now = performance.now();
+      state.status = "running";
+      state.sessionEndAt = now + state.remainingOnPause;
+      state.chordEndAt = now + Math.max(0, state.chordRemainingOnPause);
+      state.chordStartedAt = state.chordEndAt - getChordDurationMs(state.settings);
+      setControls();
+      updateLoop();
+    }
+
+    function restartSession() {
+      startSession();
+    }
+
+    function finishSession() {
+      window.cancelAnimationFrame(state.rafId);
+      window.clearTimeout(state.revealTimer);
+      const elapsedMs = getSessionDurationMs(state.settings);
+      state.status = "finished";
+      els.sessionProgress.style.width = "100%";
+      els.progressPercent.textContent = "100%";
+      els.timeRemaining.textContent = "00:00";
+      els.summaryKey.textContent = state.settings.key;
+      els.summaryDuration.textContent = formatTime(elapsedMs);
+      els.summaryChords.textContent = state.shown;
+      els.summaryPace.textContent = `${getChordDurationMs(state.settings) / 1000}s`;
+      els.summaryText.textContent = `${state.shown} chord numbers shown in ${state.settings.key}.`;
+      setStage("summary");
+      setControls();
+    }
+
+    function endSession() {
+      if (state.status !== "running" && state.status !== "paused") return;
+      finishSession();
+    }
+
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        try {
+          const promise = document.documentElement.requestFullscreen?.();
+          if (promise && typeof promise.catch === "function") promise.catch(() => {});
+        } catch (_) {}
+      } else {
+        try {
+          const promise = document.exitFullscreen?.();
+          if (promise && typeof promise.catch === "function") promise.catch(() => {});
+        } catch (_) {}
+      }
+    }
+
+    function handleShortcut(event) {
+      if (event.target.matches("input, select")) return;
+      const key = event.key.toLowerCase();
+      if (key === " ") {
+        event.preventDefault();
+        if (state.status === "running") pauseSession();
+        else if (state.status === "paused") resumeSession();
+      }
+      if (key === "f") toggleFullscreen();
+      if (key === "r" && (state.status === "running" || state.status === "paused" || state.status === "finished")) {
+        restartSession();
+      }
+    }
+
+    function bindEvents() {
+      els.settingsForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        startSession();
+      });
+
+      els.settingsForm.addEventListener("change", () => {
+        toggleCustomFields();
+        renderKeyMap();
+        updateDegreeHint();
+        saveSettings();
+      });
+
+      els.settingsForm.addEventListener("input", () => {
+        saveSettings();
+      });
+
+      els.resetSettingsBtn.addEventListener("click", () => {
+        localStorage.removeItem("diatonicChordTrainerSettings");
+        applySettings({ ...DEFAULT_SETTINGS });
+        saveSettings();
+      });
+
+      els.fullscreenBtn.addEventListener("click", toggleFullscreen);
+      els.pauseBtn.addEventListener("click", pauseSession);
+      els.resumeBtn.addEventListener("click", resumeSession);
+      els.restartBtn.addEventListener("click", restartSession);
+      els.endBtn.addEventListener("click", endSession);
+      document.addEventListener("keydown", handleShortcut);
+    }
+
+    populateControls();
+    applySettings(loadSettings());
+    bindEvents();
+    setControls();
+  </script>
+</body>
+</html>

@@ -1,0 +1,233 @@
+MASTER IMPLEMENTATION PROMPT
+BUILD AN OFFLINE-FIRST CHORD TRAINING WEB APPLICATION
+
+You are a senior frontend engineer, music-theory specialist, UX/UI designer, accessibility engineer, and software test engineer. Design, implement, test, and prepare for deployment a complete, production-quality chord-training website. This is a working application, not a mockup. Host on GitHub Pages; operate offline after initial caching; require no backend, accounts, paid APIs, or cloud database.
+
+Priorities: (1) musical correctness, (2) complete functionality, (3) reliable timing and tracking, (4) desktop/mobile UX, (5) accessibility, (6) data safety, (7) maintainable tested code, (8) polished Minimal Editorial design. Do not silently omit requirements or claim unimplemented features or unexecuted tests work. Implement in stages if necessary, but all stages are required.
+
+--------------------------------------------------
+1. PRODUCT DEFINITION
+--------------------------------------------------
+Two modes:
+A. Instrument Trainer: display chords to practise on a real instrument, manage progression and time, bookmark difficult chords. Never use microphones, sound recognition, or automatic performance grading.
+B. No-Instrument Quiz: ask diatonic chord/scale-degree identification questions, accept typed or multiple-choice answers, grade musical meaning, track weaknesses and review. This is a chord/degree trainer, not a general theory exam.
+Both modes: setup, active session, pause/resume, finish/results, presets, history, interrupted-session recovery, responsive layout, offline support. Entire application is silent: no metronome, audio, backing tracks, speech, or effects.
+
+--------------------------------------------------
+2. TECHNOLOGY AND PROJECT ARCHITECTURE
+--------------------------------------------------
+Prefer TypeScript, React, Vite, maintainable CSS, IndexedDB (optional lightweight wrapper), Vitest, Playwright, axe-core, and a PWA service worker. Build static files compatible with GitHub Pages repository subpaths; configure base URLs, assets, navigation and service worker accordingly. No backend, server rendering requirement, authentication, or cloud sync.
+Separate modules: music theory; chord/question generation; parsing/grading; instrument and quiz session engines; learning/mastery; spaced repetition; persistence/migrations; backup/import/export; UI components; accessibility; tests. One authoritative shared music-theory engine. No duplicated music rules in components. Stable persisted IDs, deterministic calculations where appropriate.
+
+--------------------------------------------------
+3. MUSIC-THEORY ENGINE
+--------------------------------------------------
+Support all 12 pitch classes, major/natural minor/harmonic minor scales, all seven degrees, diatonic triads and seventh chords, qualities derived from actual intervals, theoretical note spelling (including double accidentals), harmonic-minor augmented seconds, inversions, transposition, Roman numerals, Arabic degrees and conventional chord names. Preserve diatonic letter order; never choose spelling merely by shortest enharmonic form.
+Distinguish major seventh, dominant seventh, minor seventh, minor-major seventh, half-diminished seventh, fully diminished seventh and augmented-major seventh when musically applicable. Do not generate unsupported qualities.
+Model notes/chords structurally: pitch classes, spelled notes, root, quality, extension, inversion, degree, key and scale. Separate presentation from identity.
+Grade legitimate enharmonic equivalents in 12-tone equal temperament but preserve chord quality, seventh type and explicitly requested bass/inversion. Do not demand inversion when the question does not ask for it. Display theoretically correct spelling in the selected context. Test challenging spellings and harmonic-minor cases.
+
+--------------------------------------------------
+4. INSTRUMENT TRAINER — SETUP
+--------------------------------------------------
+4.1 Display: Arabic degrees 1–7, Roman numerals or chord names. With chord names, show the Roman numeral secondarily. Show key and scale unobtrusively.
+4.2 Keys: select any subset of 12 pitch classes; Select All/Clear All; appropriate enharmonic preferences. Fixed, manual changes, or automatic changes after configurable number of chords or active-time interval. Circle-of-fifths or random progression among enabled keys. With one key, stay there.
+4.3 Scales: independently enable major, natural minor, harmonic minor. Change randomly per chord, on key change (default), or manually.
+4.4 Degrees: independently enable 1–7, all enabled by default.
+4.5 Chord types: triads (default), sevenths, or balanced mixed.
+4.6 Inversions: any, root, first, second, third (sevenths only), or random valid. Never offer impossible inversions.
+4.7 Ordering: sequential, fully random, no-immediate-repeat random, shuffled cycle. Exhaust shuffled pools before repeat; avoid cycle-boundary repeats when possible; one-item pools may repeat.
+4.8 Progression: manual Next or configurable automatic interval, with presets/custom values. Use a dedicated Next button, not whole-screen taps. Silent start countdown none/3s/5s (default 3s automatic, none manual). Display timer as progress+seconds, seconds, or hidden. No next-chord countdown in manual mode.
+
+--------------------------------------------------
+5. INSTRUMENT TRAINER — ACTIVE SESSION
+--------------------------------------------------
+Spacious focused view with chord dominant. Previous, Next, Pause/Resume, Restart, End, compact Settings, expandable details and difficult bookmark.
+5.1 Keep actual generated chord history. Previous/Next traverse it; only generate when advancing past newest. Revisits do not create new presentations. In automatic mode, Previous pauses; on Resume jump to newest chord and restart its countdown. Never reorder history.
+5.2 Reveal: optionally hide chord name, notes, or both; Reveal action; reset reveal for each new chord.
+5.3 Expandable details: tones, quality, inversion, degree, context; unobtrusive by default.
+5.4 Planned durations: presets/custom or manual ending. On expiry stop automatic progression, leave current chord visible for completion, show Finish, and offer repeated +5/+10/+15 minute extensions in same session. Retain history, generator state and settings. Track initial plan, cumulative extensions, total allowance, active practice, paused time and wall-clock time separately. Pauses freeze active-time and progression countdowns.
+5.5 Opening in-session Settings pauses. Generation changes affect future chords only, never current or past entries.
+
+--------------------------------------------------
+6. CUSTOM CHORD COLLECTIONS
+--------------------------------------------------
+Named collections separate from diatonic generation: create, rename, delete with confirmation, add/remove, search, reorder and visual root/quality/optional-inversion picker. Prevent identical entries; preserve insertion order. Drag reorder plus accessible Move Up/Down.
+6.1 Fixed (default): preserve chord identities regardless of session key.
+6.2 Transposable: reference key; transpose the entire collection to target key while preserving root intervals, quality, extensions, inversions and sensible spelling. Do not force custom chords into diatonic harmony.
+6.3 Playback: sequential, random, shuffled cycle.
+6.4 Import/export each collection as metadata-preserving JSON or plain text (e.g. Cmaj7, Am7, Dm7, G7). Validate malformed chords with useful messages. On duplicate collection names offer Keep Both (rename), Replace Existing (confirm), Cancel; never overwrite silently.
+
+--------------------------------------------------
+7. DIFFICULT CHORD BOOKMARKS
+--------------------------------------------------
+Instrument-only persistent Needs Practice bookmarks; launch focused instrument sessions; manually remove or mark Mastered. Subtle bookmark indicator in normal sessions. Never silently change normal ordering or timing. Separate these manual bookmarks from quiz Needs Review. No automated grading of playing.
+
+--------------------------------------------------
+8. NO-INSTRUMENT QUIZ — SETUP
+--------------------------------------------------
+8.1 Direction: degree-to-chord (default), chord-to-degree, mixed.
+8.2 Answer: typed (default) or multiple choice; remember last choice; each question uses one method.
+8.3 Multiple choice: 2/3/4/6 options (default 4). Plausible, musically valid, distinct distractors; never include enharmonically equivalent copies of the correct answer. Reduce options if needed; if fewer than two valid options, show actionable invalid-configuration message rather than a broken question.
+8.4 Ordering: fully random, no-immediate-repeat, shuffled cycle (default). Exhaust distinct musical question instances; avoid cycle-boundary repeats. Instance identity includes key, scale, degree, chord type, direction; not distractor order or formatting.
+8.5 Ending: timed, question count (10/20/50/custom), or unlimited/manual.
+8.6 Per-question timer: off by default; 5/10/15/30/custom seconds. Timeout creates one unanswered attempt. Auto-advance or wait for Next.
+8.7 Feedback: immediate (default) or results-only; minimal/compact (default)/expanded. Compact includes correct chord, degree, notes where relevant; expanded explains derivation.
+8.8 Progression: manual Next (default) or auto after configurable feedback delay. One locked submission per question.
+8.9 Optional reintroduction of mistakes (off by default) via bounded secondary review queue; retain original attempts and ordering semantics, prevent uncontrolled repeats.
+
+--------------------------------------------------
+9. TYPED-ANSWER INPUT AND MUSICAL NOTATION TOOLBAR
+--------------------------------------------------
+Mandatory responsive on-screen toolbar for notation absent from standard keyboards.
+9.1 Chord symbols: ♯, ♭, ♮, °, ø, Δ, 7 and slash where relevant. Accept # for ♯, b for ♭ in accidental context, dim, m7b5, maj7, min/m, aug. Context matters: B versus Bb; C#m7 = C♯m7; Cmaj7 = CΔ7; Cø7 = Cm7b5. Do not equate fully and half-diminished chords.
+9.2 Degree toolbar adapts: I–VII, lowercase equivalents, °, ø, 7, Arabic 1–7. Accept valid degree formats; do not demand quality or inversion when not asked.
+9.3 Buttons insert at caret or replace selection, preserve focus, support mouse/touch/keyboard/screen reader, have labels, and never accidentally submit. Enter submits; visible Submit button also required.
+9.4 Parse into structured musical meaning after Unicode/text normalization; do not raw-string compare. Grade only required attributes. Malformed/ambiguous input produces helpful feedback, not crashes.
+
+--------------------------------------------------
+10. QUIZ HINTS
+--------------------------------------------------
+Optional Hint (off by default), maximum once per question; help reasoning without revealing answer; do not pause/extend timer. Record hint usage. Correct with hint counts toward overall accuracy but not independent recall; report separately.
+
+--------------------------------------------------
+11. QUIZ SCORING AND RESULTS
+--------------------------------------------------
+Track unhinted correct, hinted correct, wrong, skipped, timed out, total attempts, accuracy, independent recall, hint use. Overall accuracy = (unhinted + hinted correct) / all attempts. Independent recall = unhinted correct / all attempts. Skips/timeouts count in denominator but do not increment incorrect-answer weakness signals. Handle zero attempts safely.
+11.1 Full review: filter correct, incorrect, skipped, timed out, hint-assisted. Show each question, given answer, correct answer, hint use and explanation.
+11.2 Practice Selected: select result questions to launch a new quiz using Exact Questions (default: original key, scale, degree, chord type, direction) or New Variations (same concept, compatible changed key/presentation). Never alter original session results.
+
+--------------------------------------------------
+12. CONCEPT IDENTITY AND LEARNING MODEL
+--------------------------------------------------
+12.1 General concept = scale type + degree + triad/seventh + question direction (e.g. major | 2 | seventh | degree-to-chord).
+12.2 Key-specific concept adds tonic.
+12.3 Question instance identifies concrete musical content; display spelling/distractors do not redefine it.
+12.4 Each presentation produces a unique attempt ID and timestamps. Track general and key-specific statistics separately without double counting within a scope. Progress shows compact general summary and expandable key-specific detail.
+
+--------------------------------------------------
+13. NEEDS REVIEW AND MASTERY
+--------------------------------------------------
+Statuses: Normal, Needs Review, Mastered. Track incorrect signals, hinted-correct signals, independent-correct streak, historical stats and explicit manual events.
+13.1 Normal -> Needs Review after two incorrect attempts, three hinted-correct attempts, or manual action. Skip/timeout do not add weakness signals.
+13.2 Needs Review -> Mastered after three consecutive unhinted correct answers, or manual action. Wrong, hinted, skip and timeout break independent streak.
+13.3 In Normal, three consecutive unhinted correct clear pending weakness signals, not history.
+13.4 Mastered -> Needs Review after two subsequent incorrect, three subsequent hinted correct, or manual action. Start reopening counters at latest mastery event; one error does not immediately revoke mastery.
+13.5 Manual Add to Needs Review, Mark Mastered, Reopen are explicit events, never fabricated quiz attempts.
+13.6 Reconstruct statuses, counters, streaks, review eligibility and schedules deterministically from ordered attempts + manual events, including after session deletion. Use stable timestamp tie-breaks. Preserve historical records.
+
+--------------------------------------------------
+14. SPACED REPETITION
+--------------------------------------------------
+Optional for Mastered concepts. Intervals 1, 3, 7, 14, 30, 60, 120, 180 days; repeat 180 indefinitely. Unhinted correct advances interval; hinted correct keeps current interval; wrong resets to 1 day; skip/timeout do not advance. Needs Review suspends Due status/schedule but retains history; remastery restarts at first interval. No concept simultaneously Needs Review and Due. Calculate due dates using local calendar days, handling timezone/DST boundaries consistently.
+
+--------------------------------------------------
+15. FOCUSED REVIEW QUIZZES
+--------------------------------------------------
+Modes: Needs Review, Due for Review, Both. Both targets 70% weak/30% due; redistribute when one pool insufficient. Prefer distinct concepts, then compatible key variations. Do not change tracked direction without explicitly tracking a separate concept. Update mastery immediately but never retroactively rewrite an already planned quiz pool.
+
+--------------------------------------------------
+16. PROGRESS AND ANALYTICS
+--------------------------------------------------
+Restrained editorial Progress page: total active practice time and by mode; completed sessions; accuracy; independent recall; hinted performance; Needs Review/Mastered/Due counts; recent sessions; mistakes; general and key-specific concept progress; practice calendar and subtle charts. Show lifetime, last 7 and 30 days. Expand concepts for accuracy, recall, hints, errors, key breakdown, status, next review.
+Daily streak based on combined active time, default threshold 10 minutes (customizable), user's local day. Never count paused/inactive time.
+
+--------------------------------------------------
+17. SESSION HISTORY
+--------------------------------------------------
+Detailed history for both modes; filter mode/date/type, sort, view details, delete with confirmation, exclude/reinclude in aggregate analytics, JSON export/import. Analytics exclusion does NOT remove learning attempts or change mastery. Deleting a quiz session removes its attempts and recomputes learning state; independent manual actions remain. Reconcile review schedules; avoid duplicate/dangling references.
+
+--------------------------------------------------
+18. SHARED SESSION CONTROLS AND TIMING
+--------------------------------------------------
+Both modes: pause/resume/restart/end/results/presets/custom timing.
+18.1 Auto-pause on hidden tab, app switch or phone lock where lifecycle signals allow. No active time while hidden; require manual resume.
+18.2 Persist enough state to recover reload, browser closure, crash or sleep; reopen paused with Resume Paused / Discard; never silently resume timers.
+18.3 Single authoritative timing model, elapsed active time and deadlines rather than setInterval precision. Quiz submissions strictly before deadline accepted; at/after deadline timed out. Exactly-once attempts, presentations and completion via unique IDs/idempotency.
+18.4 Opening settings pauses; future generation only changes, never completed attempts/history.
+18.5 Confirm restart if progress discarded; reset only current session, never completed history.
+
+--------------------------------------------------
+19. KEYBOARD AND ACCESSIBILITY CONTROLS
+--------------------------------------------------
+Shortcuts: Enter submit, number keys for MC, Space pause/resume, Next, Skip, End, Help. No global shortcuts while typing/editing. Every action also accessible without shortcuts. Visible focus, logical tab order, semantics, screen-reader status announcements, labelled inputs, sufficient contrast, generous touch targets, reduced-motion, accessible reorder controls, no colour-only status. Auto-advance must manage focus predictably.
+
+--------------------------------------------------
+20. HOME PAGE AND NAVIGATION
+--------------------------------------------------
+Home as thoughtful printed music journal: short editorial introduction, entries to both modes, compact stats, recent activity, Continue Last Session configuration shortcut, subtle due indicator. Continue Last Session starts a new session with previous settings, not an expired completed timer. Distinguish interrupted Resume Paused.
+Hybrid responsive navigation; mobile bottom nav Home / Trainers / Progress; contextual headers. Minimize navigation during active practice and protect session state on route changes.
+
+--------------------------------------------------
+21. VISUAL DESIGN SYSTEM
+--------------------------------------------------
+Minimal Editorial: spacious printed-music-journal feel, fine rules, restrained notation, exercise numbering, generous whitespace, clear hierarchy, minimal decoration, legible chord displays, refined mobile layouts. Avoid generic dashboard/gaming aesthetic.
+Colours: Stone #EAE5DC; Charcoal #29251F; Muted Gold #A68A55; Paper #F8F6F1. Derive accessible supporting text, borders, status colours and dark theme. Maintain contrast.
+TYPOGRAPHY: Space Grotesk for branding, wordmark, main/selected section headings, large editorial statements. Manrope for navigation, controls, chord names and music details, quiz content, timers, stats, progress and other functional text.
+Font references: https://fonts.google.com/specimen/Space+Grotesk and https://fonts.google.com/specimen/Manrope
+FONT REQUIREMENTS: Never require user-uploaded fonts. Obtain open-source fonts from Google Fonts or suitable packages; bundle local WOFF2 assets with the app and use @font-face/equivalent; provide fallback stacks; avoid live font CDN dependencies and layout shifts; ensure offline font operation. Musical glyphs ♯ ♭ ♮ ° ø Δ must render via adequate Unicode fallback where needed. Do not reference or request Alternativ.
+Themes: light/dark/system, persist explicit choice. Subtle motion, slightly expressive Home/Results transitions, restrained active practice; respect prefers-reduced-motion.
+
+--------------------------------------------------
+22. LOCAL STORAGE AND DATA MODEL
+--------------------------------------------------
+IndexedDB stores preferences/theme, presets, collections, bookmarks, completed and recoverable sessions, quiz attempts, manual learning events, concept state, review schedules and metadata. Version schema and transactional migrations; failed migration must not silently erase valid data. Transactions for related writes. Derived learning state must be reconstructable from authoritative event history, not only mutable counters.
+
+--------------------------------------------------
+23. BACKUP, RESTORE, IMPORT, AND EXPORT
+--------------------------------------------------
+Full manual versioned JSON backup with all user data needed to reconstruct state. Downloadable file; no cloud sync. Restore: parse, validate schema/relationships/music, preview contents, warn replacement, obtain explicit confirmation, then replace entire snapshot transactionally. Failed restore retains original valid dataset. Do not ambiguously merge full histories. Collection-level imports retain their separate duplicate-name workflow. Explain browser storage clearing/eviction/device loss risks; gently encourage periodic backups.
+
+--------------------------------------------------
+24. OFFLINE PWA
+--------------------------------------------------
+Installable PWA with manifest, icons, service worker, offline asset/navigation caching, standalone mode where supported, theme metadata. Both modes, grading, generation, storage and bundled Space Grotesk/Manrope must work after initial caching without network. Discreet install option or browser-specific manual instructions; never interrupt active session. Notify of updates discreetly; no forced reload during session; preserve local data and sessions. Ensure GitHub Pages subpath-safe caching, routes and asset URLs.
+
+--------------------------------------------------
+25. ERROR HANDLING AND RECOVERY
+--------------------------------------------------
+Meaningful error messages and Retry / Resume / Return Home as applicable. Preserve latest valid committed state. Validate malformed imports, use error boundaries, degrade safely for unsupported browser capabilities. Never erase progress silently or falsely claim save success.
+
+--------------------------------------------------
+26. SAVED SETTINGS PRESETS
+--------------------------------------------------
+Named presets per mode: create, rename, select, update, delete with confirmation. Persist locally. Validate before starting; show actionable message for combinations with zero valid chords/questions; never silently modify user selections.
+
+--------------------------------------------------
+27. COMPREHENSIVE TESTING
+--------------------------------------------------
+Use Vitest/unit-integration, Playwright E2E and axe-core plus manual accessibility verification.
+27.1 Music: scales, degree derivation, triads/sevenths, qualities, correct spelling/double accidentals, harmonic minor, enharmonics, inversion, transposition, Roman formatting, custom parsing.
+27.2 Quiz: both/mixed directions, typed Unicode/text parsing, context-aware degree grading, distractors, tiny pools, shuffle/repeat rules, timers, skip/timeout, hints, accuracy and recall.
+27.3 Mastery: 2 wrong, 3 hinted, 3 independent successes, streak breaks, manual actions, reopening, general/key-specific tracking, reconstruction after deletion.
+27.4 Spaced repetition: every 1/3/7/14/30/60/120/180 interval, hinted/unhinted/wrong/skip, remastery, local date boundaries, mixed review allocation.
+27.5 Session/timers: manual/auto, pause/visibility, restart/end, duration expiry, finish-current, repeated extensions, Previous/Next, recovery, duplicate events, deadline boundaries; deterministic fake clocks.
+27.6 Storage: initial creation, migrations/failures, invalid data, transaction rollback, backups, valid/invalid restore, collection duplicate handling, state reconstruction.
+27.7 E2E: both complete flows, toolbar, MC, collections, bookmarks, review, recovery, backup, mobile nav, theme, offline.
+27.8 Accessibility: automated plus manual keyboard, screen-reader, focus, contrast, motion, touch, notation toolbar, reorder alternatives.
+27.9 Report tests implemented vs executed vs passed/failed vs manually pending. Never invent test results.
+
+--------------------------------------------------
+28. IMPLEMENTATION SEQUENCE
+--------------------------------------------------
+Milestone 1: architecture, shared music theory, both core modes, toolbar, timing, core persistence, responsive navigation, foundational tests.
+Milestone 2: collections, bookmarks, mastery, spaced repetition, focused review, analytics, history, presets.
+Milestone 3: full backup/restore, migrations, recovery, PWA/install/update, error handling, accessibility, full tests, GitHub Pages deployment.
+All three are mandatory, not optional feature tiers.
+
+--------------------------------------------------
+29. ACCEPTANCE CRITERIA
+--------------------------------------------------
+Completion requires: (1) both modes end-to-end; (2) correct theory/spelling; (3) notation toolbar; (4) equivalent-answer grading; (5) valid distinct MC options; (6) correct trainer timing/history; (7) fixed/transposable collections; (8) bookmarks; (9) deterministic mastery; (10) correct spaced repetition; (11) focused review; (12) accurate history/analytics; (13) no inflated time; (14) persistence across reload; (15) safe full backup/restore; (16) offline PWA including fonts; (17) responsive desktop/mobile; (18) keyboard/accessibility; (19) Minimal Editorial Space Grotesk/Manrope design; (20) honest executed test reports; (21) GitHub Pages static deployment; (22) no backend/paid service.
+
+--------------------------------------------------
+30. REQUIRED DELIVERABLES
+--------------------------------------------------
+Complete source, directory structure, configuration, dependencies/install instructions, production build, tests, theory/mastery documentation, IndexedDB schema/migrations, backup schema, GitHub Pages deployment instructions, PWA update details, accessibility checklist, implemented-feature summary, honest limitations and exact run/test/build/deploy commands. No pseudocode-only output, fake controls or fabricated test passes.
+
+--------------------------------------------------
+31. HOW TO WORK
+--------------------------------------------------
+Before coding, analyze specification, feature dependencies, data model/state machines, music engine interfaces, grading/learning interfaces, architecture and potential contradictions. Resolve technical ambiguities conservatively and document choices; ask only about decisions that materially alter functionality. Then implement actual project files systematically, with consistency across modules. If unable to run builds/tests in the environment, say so and provide verification commands. Favor correct, maintainable implementations over flashy fragile prototypes.
+
+FINAL OBJECTIVE: A complete, polished, accessible, silent, offline-first chord-training website deployable to GitHub Pages and usable regularly on laptop and phone. Begin with architecture and implementation plan, then actual implementation.

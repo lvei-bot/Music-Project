@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-paper: #F8F6F1;
+    --color-stone: #EAE5DC;
+    --color-charcoal: #29251F;
+    --color-gold: #A68A55;
+    --color-border: rgba(41, 37, 31, 0.12);
+    --color-success: #2D7A4D;
+    --color-warning: #B85D19;
+    --color-info: #356596;
+  }
+
+  .dark {
+    --color-paper: #181614;
+    --color-stone: #221F1C;
+    --color-charcoal: #EDE8E1;
+    --color-gold: #CBB07E;
+    --color-border: rgba(237, 232, 225, 0.12);
+    --color-success: #48A66C;
+    --color-warning: #D47732;
+    --color-info: #5A94CF;
+  }
+
+  body {
+    font-family: 'Manrope', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+
+  h1, h2, h3, .font-editorial {
+    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Custom focus ring for accessibility */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
