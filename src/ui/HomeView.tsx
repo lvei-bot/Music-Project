@@ -1,28 +1,14 @@
 /**
- * Home View: Printed Music Journal Aesthetic
- * Editorial introduction, entries to both modes, compact stats,
- * interrupted-session recovery, continue last session, and SR review indicator.
+ * Home View: Stark High-Contrast Editorial Design
+ * Faithfully matches chord-prototype.html with oversized wordmark,
+ * vivid #FF4B30 accent block, abstract piano artwork, action rows,
+ * and the three movements index.
  */
 
 import React from 'react';
-import {
-  Music,
-  HelpCircle,
-  Play,
-  RotateCcw,
-  Sparkles,
-  Flame,
-  Clock,
-  CheckCircle2,
-  AlertCircle,
-  Bookmark,
-  ArrowRight,
-  ShieldAlert,
-} from 'lucide-react';
 import { NavTab } from './Header';
 import { CompletedSessionRecord, ActiveSessionRecovery, DifficultChordBookmark } from '../storage/indexedDb';
 import { ConceptMasteryState } from '../learning/masteryModel';
-import { formatDurationMs } from '../session/timingEngine';
 
 interface HomeViewProps {
   onSelectTab: (tab: NavTab) => void;
@@ -37,6 +23,68 @@ interface HomeViewProps {
   dailyGoalMinutes?: number;
 }
 
+// Abstract keyboard artwork where C-E-G chord tones rise above the rest
+const ArtSVG: React.FC = () => {
+  const w = 60;
+  const keys = 7;
+  const tops = [30, 230, 0, 230, 90, 230, 230];
+  const whiteRects: React.ReactNode[] = [];
+  for (let i = 0; i < keys; i++) {
+    const raised = [0, 2, 4].includes(i);
+    whiteRects.push(
+      <rect
+        key={`w-${i}`}
+        x={i * w + 1.5}
+        y={tops[i]}
+        width={w - 3}
+        height={1000 - tops[i]}
+        fill={raised ? '#111' : '#fff'}
+        stroke="#111"
+        strokeWidth="2.5"
+      />
+    );
+  }
+
+  const blackRects: React.ReactNode[] = [];
+  [0, 1, 3, 4, 5].forEach(i => {
+    const isRaised = [0, 2, 4].includes(i) || [0, 2, 4].includes(i + 1);
+    blackRects.push(
+      <rect
+        key={`b-${i}`}
+        x={(i + 1) * w - 13}
+        y={230}
+        width={26}
+        height={250}
+        fill="#111"
+        stroke={isRaised ? '#fff' : '#111'}
+        strokeWidth="1.5"
+      />
+    );
+  });
+
+  const markers: React.ReactNode[] = [];
+  [0, 2, 4].forEach(i => {
+    markers.push(
+      <rect
+        key={`m-${i}`}
+        x={i * w + 17}
+        y={tops[i] + 16}
+        width={26}
+        height={5}
+        fill="#fff"
+      />
+    );
+  });
+
+  return (
+    <svg viewBox="0 0 420 1000" preserveAspectRatio="xMidYMin slice" aria-hidden="true" focusable="false">
+      {whiteRects}
+      {blackRects}
+      {markers}
+    </svg>
+  );
+};
+
 export const HomeView: React.FC<HomeViewProps> = ({
   onSelectTab,
   sessions,
@@ -47,246 +95,188 @@ export const HomeView: React.FC<HomeViewProps> = ({
   conceptStates,
   bookmarks,
   onStartFocusedReview,
-  dailyGoalMinutes = 10,
 }) => {
-  // Aggregate stats
-  const activeSessions = sessions.filter(s => !s.excludedFromAnalytics);
-  const totalActiveSeconds = activeSessions.reduce((acc, s) => acc + s.activeDurationSeconds, 0);
-
-  // Daily streak calculation (days with >= dailyGoalMinutes active practice)
-  const goalSeconds = dailyGoalMinutes * 60;
-  const sessionsByDay = new Map<string, number>();
-  for (const s of activeSessions) {
-    const day = new Date(s.completedAt).toISOString().split('T')[0];
-    sessionsByDay.set(day, (sessionsByDay.get(day) || 0) + s.activeDurationSeconds);
-  }
-
-  let streak = 0;
-  const today = new Date();
-  for (let i = 0; i < 365; i++) {
-    const checkDate = new Date(today);
-    checkDate.setDate(today.getDate() - i);
-    const dayStr = checkDate.toISOString().split('T')[0];
-    const sec = sessionsByDay.get(dayStr) || 0;
-    if (i === 0 && sec < goalSeconds) {
-      // Today is not complete yet, continue checking yesterday without breaking
-      continue;
-    }
-    if (sec >= goalSeconds) {
-      streak += 1;
-    } else {
-      break;
-    }
-  }
-
   // Mastery counts
-  let needsReviewCount = 0;
-  let masteredCount = 0;
   let dueCount = 0;
   for (const state of conceptStates.values()) {
-    if (state.status === 'needs_review') needsReviewCount += 1;
-    else if (state.status === 'mastered') {
-      masteredCount += 1;
-      if (state.isDue) dueCount += 1;
-    }
+    if (state.status === 'mastered' && state.isDue) dueCount += 1;
   }
 
   const lastSession = sessions.length > 0 ? sessions[0] : null;
 
   return (
-    <div className="max-w-5xl mx-auto px-4 py-8 md:py-12 space-y-10">
+    <div className="view">
       {/* Interrupted Session Recovery Banner */}
       {activeRecovery && (
-        <div className="p-4 sm:p-5 rounded-xl bg-[#A68A55]/10 dark:bg-[#CBB07E]/10 border border-[#A68A55]/30 dark:border-[#CBB07E]/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 animate-in fade-in duration-300">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-[#A68A55] text-white flex items-center justify-center shrink-0">
-              <ShieldAlert className="w-5 h-5" />
-            </div>
+        <div className="mx-auto max-w-[var(--content-max)] px-[var(--pad)] pt-4">
+          <div className="border-2 border-[var(--ink)] bg-[var(--accent)] text-[var(--ink)] p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-                Interrupted Session Recovered
-              </h3>
-              <p className="text-xs text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-                You have a paused {activeRecovery.mode === 'instrument' ? 'Instrument Trainer' : 'Quiz'} session from{' '}
+              <div className="micro font-black tracking-wider">Interrupted Session Recovered</div>
+              <div className="font-bold text-sm mt-1">
+                Paused {activeRecovery.mode === 'instrument' ? 'Instrument Trainer' : 'Quiz'} session from{' '}
                 {new Date(activeRecovery.savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.
-              </p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto">
-            <button
-              onClick={onDiscardRecovery}
-              type="button"
-              className="px-3 py-1.5 text-xs font-semibold rounded-md border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F]/70 dark:text-[#EDE8E1]/70 hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] transition-colors"
-            >
-              Discard
-            </button>
-            <button
-              onClick={onResumeRecovery}
-              type="button"
-              className="px-4 py-1.5 text-xs font-semibold rounded-md bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] hover:bg-black dark:hover:bg-white transition-colors flex items-center gap-1.5"
-            >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>Resume Paused</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={onDiscardRecovery}
+                className="btn ghost !min-h-[44px] !px-4 !text-xs"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={onResumeRecovery}
+                className="btn !min-h-[44px] !px-5 !text-xs !bg-[var(--ink)] !text-white"
+              >
+                Resume Paused →
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Editorial Header Statement */}
-      <div className="space-y-3 border-b border-[#29251F]/15 dark:border-[#EDE8E1]/15 pb-8">
-        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-widest text-[#A68A55] dark:text-[#CBB07E]">
-          <span>Exercise Journal No. 1</span>
-          <span>•</span>
-          <span>Offline Diatonic Harmony</span>
-        </div>
-        <h1 className="font-editorial text-3xl sm:text-4xl md:text-5xl font-bold tracking-tight text-[#29251F] dark:text-[#EDE8E1] leading-tight">
-          Master diatonic chord degrees with clarity, precision, and silence.
-        </h1>
-        <p className="text-sm sm:text-base text-[#29251F]/75 dark:text-[#EDE8E1]/75 max-w-3xl leading-relaxed">
-          Designed for musicians practicing at the instrument or training recall on the move. Completely silent,
-          offline-first, with rigorous 12-tone voice-leading spelling, harmonic minor support, and adaptive spaced repetition.
-        </p>
-
-        {/* Quick Actions Row */}
-        <div className="pt-4 flex flex-wrap items-center gap-3">
-          {lastSession && (
+      {/* Hero Section */}
+      <section className="hero" aria-labelledby="h1">
+        <div className="stage" id="stage">
+          <h1 id="h1" className="display wordmark">chord.</h1>
+          <div className="acc-block">
             <button
-              onClick={onContinueLastSession}
               type="button"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#EAE5DC] dark:bg-[#221F1C] text-[#29251F] dark:text-[#EDE8E1] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-xs font-bold hover:border-[#A68A55] transition-colors"
-              title="Start a new session with previous settings"
-            >
-              <RotateCcw className="w-3.5 h-3.5 text-[#A68A55]" />
-              <span>Continue Last Session ({lastSession.mode === 'instrument' ? 'Trainer' : 'Quiz'})</span>
-            </button>
-          )}
-
-          {dueCount > 0 && (
-            <button
-              onClick={() => onStartFocusedReview('due')}
-              type="button"
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#B85D19]/15 dark:bg-[#D47732]/20 border border-[#B85D19]/40 text-[#B85D19] dark:text-[#D47732] text-xs font-bold hover:bg-[#B85D19]/25 transition-colors"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>{dueCount} Concept{dueCount > 1 ? 's' : ''} Due for Spaced Review</span>
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Mode Entry Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {/* Mode A: Instrument Trainer */}
-        <div className="group relative rounded-2xl bg-[#EAE5DC]/40 dark:bg-[#221F1C]/40 border border-[#29251F]/15 dark:border-[#EDE8E1]/15 p-6 sm:p-8 flex flex-col justify-between hover:border-[#A68A55] transition-all shadow-2xs">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="w-10 h-10 rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] flex items-center justify-center">
-                <Music className="w-5 h-5" />
-              </span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E]">
-                Mode A • At Instrument
-              </span>
-            </div>
-
-            <h2 className="font-editorial text-2xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-              Instrument Trainer
-            </h2>
-            <p className="text-xs sm:text-sm text-[#29251F]/70 dark:text-[#EDE8E1]/70 leading-relaxed">
-              Hands-free visual prompter for keyboard, guitar, or bass. Automatic or manual progression, circle of
-              fifths, triad/seventh voicings, inversions, and persistent bookmarks for difficult chords.
-            </p>
-          </div>
-
-          <div className="pt-6 border-t border-[#29251F]/10 dark:border-[#EDE8E1]/10 mt-6 flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#29251F]/60 dark:text-[#EDE8E1]/60">
-              {bookmarks.length > 0 ? `${bookmarks.length} bookmarked chords` : 'Silent visual pacing'}
-            </span>
-            <button
+              className="sq go"
               onClick={() => onSelectTab('trainer')}
-              type="button"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] text-xs font-bold hover:bg-black dark:hover:bg-white transition-colors"
+              aria-label="Start instrument trainer setup"
             >
-              <span>Open Trainer</span>
-              <ArrowRight className="w-3.5 h-3.5" />
+              →
             </button>
           </div>
-        </div>
-
-        {/* Mode B: No-Instrument Quiz */}
-        <div className="group relative rounded-2xl bg-[#EAE5DC]/40 dark:bg-[#221F1C]/40 border border-[#29251F]/15 dark:border-[#EDE8E1]/15 p-6 sm:p-8 flex flex-col justify-between hover:border-[#A68A55] transition-all shadow-2xs">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <span className="w-10 h-10 rounded-lg bg-[#A68A55] text-white flex items-center justify-center">
-                <HelpCircle className="w-5 h-5" />
-              </span>
-              <span className="text-[11px] font-bold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E]">
-                Mode B • Theory Recall
-              </span>
+          <div className="art">
+            <ArtSVG />
+          </div>
+          <div className="blurb micro muted">
+            <span>Diatonic chord practice for scale degrees, triads &amp; sevenths.</span>
+            <span>Silent. Offline-first. No accounts. Keep practising.</span>
+          </div>
+          <div className="vtext" aria-hidden="true">
+            <div className="vert">
+              Diatonic<br />chord practice
             </div>
-
-            <h2 className="font-editorial text-2xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-              No-Instrument Quiz
-            </h2>
-            <p className="text-xs sm:text-sm text-[#29251F]/70 dark:text-[#EDE8E1]/70 leading-relaxed">
-              Diatonic scale-degree and chord identification. Type answers using the on-screen notation toolbar or
-              choose multiple choice. Intelligent enharmonic grading, hints, and mistake tracking.
-            </p>
+            <i></i>
           </div>
+          <div className="num" aria-hidden="true">07</div>
+        </div>
 
-          <div className="pt-6 border-t border-[#29251F]/10 dark:border-[#EDE8E1]/10 mt-6 flex items-center justify-between">
-            <span className="text-xs font-semibold text-[#29251F]/60 dark:text-[#EDE8E1]/60">
-              {needsReviewCount > 0 ? `${needsReviewCount} concepts need review` : 'Mastery tracking'}
+        <div className="actions">
+          <button
+            type="button"
+            className="act"
+            onClick={() => onSelectTab('trainer')}
+          >
+            <span>
+              Instrument trainer
+              <small>Chords on screen. You play them.</small>
             </span>
-            <button
-              onClick={() => onSelectTab('quiz')}
-              type="button"
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#A68A55] text-white text-xs font-bold hover:bg-[#8e7443] transition-colors"
-            >
-              <span>Open Quiz</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            <span aria-hidden="true">→</span>
+          </button>
+          <button
+            type="button"
+            className="act"
+            onClick={() => onSelectTab('quiz')}
+          >
+            <span>
+              No-instrument quiz
+              <small>Name the chord. Name the degree.</small>
+            </span>
+            <span aria-hidden="true">→</span>
+          </button>
+        </div>
+      </section>
+
+      {/* Quick session resume or due spaced review triggers */}
+      {(lastSession || dueCount > 0) && (
+        <section className="px-[var(--pad)] py-6 border-t border-[var(--line)]">
+          <div className="max-w-[var(--content-max)] mx-auto flex flex-wrap items-center gap-4">
+            {lastSession && (
+              <button
+                type="button"
+                onClick={onContinueLastSession}
+                className="btn !min-h-[48px] !text-xs"
+              >
+                <span>Continue Last ({lastSession.mode === 'instrument' ? 'Trainer' : 'Quiz'})</span>
+                <span>↺</span>
+              </button>
+            )}
+            {dueCount > 0 && (
+              <button
+                type="button"
+                onClick={() => onStartFocusedReview('due')}
+                className="btn acc-bg !min-h-[48px] !text-xs"
+              >
+                <span>{dueCount} Concept{dueCount > 1 ? 's' : ''} Due for Spaced Review</span>
+                <span>↗</span>
+              </button>
+            )}
           </div>
-        </div>
-      </div>
+        </section>
+      )}
 
-      {/* Practice Journal Stats Strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 p-5 rounded-2xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10">
-        <div className="space-y-1">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-[#29251F]/50 dark:text-[#EDE8E1]/50 flex items-center gap-1">
-            <Clock className="w-3 h-3 text-[#A68A55]" /> Total Practice
-          </span>
-          <p className="font-editorial text-xl sm:text-2xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-            {formatDurationMs(totalActiveSeconds * 1000)}
-          </p>
+      {/* Three Movements Editorial Index */}
+      <section className="rows" aria-label="How it works">
+        <div className="lead">
+          <div className="micro muted">Edition 01 / Practice index</div>
+          <h2
+            className="display"
+            style={{ fontSize: 'clamp(2.6rem, 5vw, 5rem)', marginTop: '14px' }}
+          >
+            three<br />movements.
+          </h2>
         </div>
+        <div className="list">
+          <button
+            type="button"
+            className="rrow"
+            onClick={() => onSelectTab('trainer')}
+          >
+            <span className="micro">01</span>
+            <span className="t">train</span>
+            <p>
+              Chords arrive on a timer or on your command. Notes, inversion and a keyboard diagram support the hands.
+            </p>
+            <span className="ar" aria-hidden="true">↗</span>
+          </button>
+          <button
+            type="button"
+            className="rrow"
+            onClick={() => onSelectTab('quiz')}
+          >
+            <span className="micro">02</span>
+            <span className="t">test</span>
+            <p>
+              Choose a key, then identify diatonic chords and degrees by typing or multiple choice.
+            </p>
+            <span className="ar" aria-hidden="true">↗</span>
+          </button>
+          <button
+            type="button"
+            className="rrow"
+            onClick={() => onSelectTab('progress')}
+          >
+            <span className="micro">03</span>
+            <span className="t">review</span>
+            <p>
+              Weak degrees surface as thin bars. Bookmarked chords wait in your collection.
+            </p>
+            <span className="ar" aria-hidden="true">↗</span>
+          </button>
+        </div>
+      </section>
 
-        <div className="space-y-1">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-[#29251F]/50 dark:text-[#EDE8E1]/50 flex items-center gap-1">
-            <Flame className="w-3 h-3 text-[#B85D19]" /> Daily Streak
-          </span>
-          <p className="font-editorial text-xl sm:text-2xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-            {streak} Day{streak === 1 ? '' : 's'}
-          </p>
-        </div>
-
-        <div className="space-y-1">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-[#29251F]/50 dark:text-[#EDE8E1]/50 flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3 text-[#2D7A4D] dark:text-[#48A66C]" /> Mastered
-          </span>
-          <p className="font-editorial text-xl sm:text-2xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-            {masteredCount}
-          </p>
-        </div>
-
-        <div className="space-y-1">
-          <span className="text-[10px] uppercase font-bold tracking-wider text-[#29251F]/50 dark:text-[#EDE8E1]/50 flex items-center gap-1">
-            <AlertCircle className="w-3 h-3 text-[#B85D19] dark:text-[#D47732]" /> Needs Review
-          </span>
-          <p className="font-editorial text-xl sm:text-2xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-            {needsReviewCount}
-          </p>
-        </div>
-      </div>
+      {/* Editorial Footer */}
+      <footer className="foot">
+        <span className="micro">Diatonic Chord Practice · Offline-First PWA</span>
+        <span className="micro muted">Grotesk / Manrope · Accent #FF4B30</span>
+      </footer>
     </div>
   );
 };

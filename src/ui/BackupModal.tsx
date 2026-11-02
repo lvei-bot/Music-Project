@@ -1,19 +1,10 @@
 /**
  * Full Manual Versioned Backup & Restore Component
- * Download full user database JSON, parse, validate, preview contents,
- * warn about complete replacement, and execute transactional restore.
+ * Rebuilt to match the editorial aesthetic: stark borders, Grotesk typography,
+ * clear transactional validation, and no soft pills.
  */
 
 import React, { useState } from 'react';
-import {
-  Download,
-  Upload,
-  AlertTriangle,
-  CheckCircle2,
-  X,
-  FileCheck,
-  ShieldAlert,
-} from 'lucide-react';
 import {
   createFullBackup,
   validateBackupData,
@@ -98,120 +89,111 @@ export const BackupModal: React.FC<BackupModalProps> = ({
       setTimeout(() => {
         onRestoreSuccess();
         onClose();
-      }, 1200);
+      }, 900);
     } catch (err: any) {
       setIsRestoring(false);
-      setErrorMessage(`Restore failed: ${err?.message || err}. Existing data was preserved.`);
+      setErrorMessage(`Restore failed: ${err?.message || err}`);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 animate-in fade-in duration-150">
-      <div className="w-full max-w-lg rounded-2xl bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/20 dark:border-[#EDE8E1]/20 p-6 sm:p-8 space-y-6 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[#29251F]/10 dark:border-[#EDE8E1]/10 pb-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+      <div
+        className="w-full max-w-xl border-2 border-[var(--ink)] bg-[var(--canvas)] p-6 sm:p-8 space-y-6 animate-in zoom-in-95 duration-150"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="backup-title"
+      >
+        <div className="flex items-start justify-between border-b border-[var(--ink)] pb-4">
           <div>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E]">
-              Data Safety & Local Storage
-            </span>
-            <h2 className="font-editorial text-2xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-              Backup & Restore
+            <span className="micro muted">Data Integrity · Version 1</span>
+            <h2 id="backup-title" className="display" style={{ fontSize: '2.4rem', margin: '4px 0 0' }}>
+              backup &amp; restore.
             </h2>
           </div>
           <button
-            onClick={onClose}
             type="button"
-            className="p-1.5 rounded-lg text-[#29251F]/60 dark:text-[#EDE8E1]/60 hover:text-[#29251F]"
-            aria-label="Close"
+            onClick={onClose}
+            className="micro font-bold p-1 hover:underline"
+            aria-label="Close dialog"
           >
-            <X className="w-5 h-5" />
+            Close ✕
           </button>
         </div>
 
-        <p className="text-xs text-[#29251F]/70 dark:text-[#EDE8E1]/70 leading-relaxed">
-          All your practice sessions, learning mastery streaks, custom collections, and bookmarks are stored safely
-          in your browser’s IndexedDB. Because this app operates completely offline without cloud databases or accounts,
-          download periodic backups to protect against browser cache clearing.
-        </p>
+        {/* Section 1: Export */}
+        <div className="space-y-3">
+          <div className="micro font-bold">01 Export Snapshot</div>
+          <p className="text-xs text-[var(--muted)] leading-relaxed">
+            Download your complete database: practice sessions, quiz attempts, custom collections, bookmarks, and settings presets as a single JSON file.
+          </p>
+          <button
+            type="button"
+            onClick={handleDownloadBackup}
+            className="btn w-full"
+          >
+            <span>Download Backup JSON</span>
+            <span>↓</span>
+          </button>
+        </div>
 
-        {/* Action Blocks */}
-        <div className="space-y-4">
-          {/* Export Button */}
-          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 flex items-center justify-between gap-3">
-            <div>
-              <h4 className="font-bold text-xs text-[#29251F] dark:text-[#EDE8E1]">Download Complete Backup</h4>
-              <p className="text-[11px] text-[#29251F]/60 dark:text-[#EDE8E1]/60">
-                Exports all sessions, learning state, collections, and presets to a single JSON file.
-              </p>
-            </div>
-            <button
-              onClick={handleDownloadBackup}
-              type="button"
-              className="px-4 py-2 text-xs font-bold rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] hover:bg-black dark:hover:bg-white flex items-center gap-1.5 shrink-0"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Export JSON</span>
-            </button>
-          </div>
+        {/* Section 2: Import */}
+        <div className="border-t border-[var(--line)] pt-6 space-y-3">
+          <div className="micro font-bold">02 Restore from Snapshot</div>
+          <p className="text-xs text-[var(--muted)] leading-relaxed">
+            Select a verified backup file. Contents will be validated before replacement.
+          </p>
 
-          {/* Import / Restore Section */}
-          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-3">
-            <div>
-              <h4 className="font-bold text-xs text-[#29251F] dark:text-[#EDE8E1]">Restore from Backup File</h4>
-              <p className="text-[11px] text-[#29251F]/60 dark:text-[#EDE8E1]/60">
-                Select a previously exported JSON backup to validate and restore.
-              </p>
-            </div>
-
+          <label className="block border border-[var(--ink)] p-4 cursor-pointer hover:bg-[var(--surface)] text-center transition-colors">
+            <span className="micro font-bold block">
+              {selectedFileContent ? '✓ Backup File Loaded' : 'Click to Select Backup JSON File'}
+            </span>
             <input
               type="file"
-              accept=".json"
+              accept=".json,application/json"
               onChange={handleFileChange}
-              className="w-full text-xs file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-[#A68A55] file:text-white hover:file:bg-[#8e7443] cursor-pointer"
+              className="sr"
             />
+          </label>
 
-            {/* Error Message */}
-            {errorMessage && (
-              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-                <span>{errorMessage}</span>
+          {errorMessage && (
+            <div className="p-3 border border-[var(--error)] text-[var(--error)] micro font-bold" role="alert">
+              ✕ {errorMessage}
+            </div>
+          )}
+
+          {validation?.isValid && validation.counts && (
+            <div className="p-4 border border-[var(--ink)] bg-[var(--surface)] space-y-2">
+              <span className="micro font-bold text-[var(--success)] block">
+                ✓ Valid Backup Snapshot (Version {selectedFileContent?.version})
+              </span>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>Sessions: <b>{validation.counts.sessions}</b></div>
+                <div>Quiz Attempts: <b>{validation.counts.quizAttempts}</b></div>
+                <div>Collections: <b>{validation.counts.collections}</b></div>
+                <div>Bookmarks: <b>{validation.counts.bookmarks}</b></div>
+                <div>Presets: <b>{validation.counts.presets}</b></div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Preview of validated backup */}
-            {validation?.isValid && validation.summary && (
-              <div className="p-3.5 rounded-lg bg-[#2D7A4D]/10 dark:bg-[#48A66C]/10 border border-[#2D7A4D]/25 dark:border-[#48A66C]/25 text-xs space-y-2">
-                <div className="flex items-center gap-2 font-bold text-[#2D7A4D] dark:text-[#48A66C]">
-                  <FileCheck className="w-4 h-4" />
-                  <span>Backup Validated Successfully</span>
-                </div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-[#29251F]/80 dark:text-[#EDE8E1]/80">
-                  <span>Sessions: <strong>{validation.summary.sessionsCount}</strong></span>
-                  <span>Quiz Attempts: <strong>{validation.summary.attemptsCount}</strong></span>
-                  <span>Collections: <strong>{validation.summary.collectionsCount}</strong></span>
-                  <span>Bookmarks: <strong>{validation.summary.bookmarksCount}</strong></span>
-                </div>
+          {validation?.isValid && (
+            <button
+              type="button"
+              onClick={handleExecuteRestore}
+              disabled={isRestoring}
+              className="btn acc-bg big w-full mt-2"
+            >
+              <span>{isRestoring ? 'Restoring Snapshot…' : 'Restore & Overwrite Database'}</span>
+              <span>→</span>
+            </button>
+          )}
 
-                <div className="pt-2 flex justify-end">
-                  <button
-                    onClick={handleExecuteRestore}
-                    disabled={isRestoring}
-                    type="button"
-                    className="px-4 py-2 text-xs font-bold rounded-lg bg-[#2D7A4D] dark:bg-[#48A66C] text-white hover:opacity-90 flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    {isRestoring ? 'Restoring...' : 'Confirm Full Restore'}
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Restore Success Confirmation */}
-            {restoreSuccess && (
-              <div className="p-3 rounded-lg bg-[#2D7A4D]/15 border border-[#2D7A4D]/30 text-[#2D7A4D] text-xs font-bold flex items-center gap-2">
-                <CheckCircle2 className="w-4 h-4" />
-                <span>Database restored successfully. Updating views...</span>
-              </div>
-            )}
-          </div>
+          {restoreSuccess && (
+            <div className="p-3 border border-[var(--success)] text-[var(--success)] micro font-bold text-center">
+              ✓ Database restored successfully. Reopening…
+            </div>
+          )}
         </div>
       </div>
     </div>

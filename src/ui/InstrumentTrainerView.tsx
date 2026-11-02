@@ -1,29 +1,12 @@
 /**
  * Mode A: Instrument Trainer Component
- * Complete setup, active session, history traversal, reveal controls,
- * difficult bookmarks, duration extensions, presets, and 100% silent pacing.
+ * Rebuilt to faithfully match chord-prototype.html
+ * High-contrast editorial layout: 12-column config, oversized display chords,
+ * piano keyboard diagram with C-E-G / bass highlighting, sticky transport bar,
+ * and comprehensive session review.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  Play,
-  Pause,
-  ChevronLeft,
-  ChevronRight,
-  RotateCcw,
-  CheckCircle,
-  Bookmark,
-  BookmarkCheck,
-  Settings,
-  Eye,
-  EyeOff,
-  Clock,
-  Sparkles,
-  Save,
-  Trash2,
-  X,
-  Plus,
-} from 'lucide-react';
 import {
   ScaleType,
   ChordTypeFilter,
@@ -33,6 +16,7 @@ import {
   formatScaleName,
   CIRCLE_OF_FIFTHS,
   TONICS_BY_PITCH_CLASS,
+  KEY_DISPLAY_LIST,
 } from '../theory/musicEngine';
 import {
   CompletedSessionRecord,
@@ -45,7 +29,7 @@ import {
   savePreset,
   deletePreset,
 } from '../storage/indexedDb';
-import { formatDurationMs } from '../session/timingEngine';
+import { PianoDiagram } from './PianoDiagram';
 
 export interface InstrumentTrainerSettings {
   displayMode: 'arabic' | 'roman' | 'chord_name';
@@ -66,6 +50,7 @@ export interface InstrumentTrainerSettings {
   plannedDurationMinutes: number | null; // null = unlimited
   hideChordName: boolean;
   hideNotes: boolean;
+  showDiagram?: boolean;
 }
 
 export const DEFAULT_TRAINER_SETTINGS: InstrumentTrainerSettings = {
@@ -80,13 +65,14 @@ export const DEFAULT_TRAINER_SETTINGS: InstrumentTrainerSettings = {
   chordType: 'triads',
   inversion: 'root',
   ordering: 'shuffled_cycle',
-  progressionMode: 'auto',
-  autoIntervalSeconds: 3,
+  progressionMode: 'manual',
+  autoIntervalSeconds: 4,
   startCountdown: 3,
   timerDisplayStyle: 'progress_seconds',
-  plannedDurationMinutes: 5,
+  plannedDurationMinutes: null,
   hideChordName: false,
   hideNotes: false,
+  showDiagram: true,
 };
 
 interface InstrumentTrainerViewProps {
@@ -99,6 +85,14 @@ interface InstrumentTrainerViewProps {
   forcedChords?: DiatonicChord[]; // For focused review or collections
 }
 
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const fmtT = (ms: number) => {
+  const s = Math.floor(ms / 1000);
+  return `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
+};
+
+const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
+
 export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
   onSessionComplete,
   bookmarks,
@@ -108,75 +102,69 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
   initialSettings,
   forcedChords,
 }) => {
-  const [settings, setSettings] = useState<InstrumentTrainerSettings>({
+  // Settings State
+  const [settings, setSettings] = useState<InstrumentTrainerSettings>(() => ({
     ...DEFAULT_TRAINER_SETTINGS,
     ...initialSettings,
+  }));
+
+  // Accordion open state
+  const [openGroups, setOpenGroups] = useState<{ [key: number]: boolean }>({
+    1: true,
+    2: true,
+    3: false,
+    4: false,
   });
 
-  const [sessionState, setSessionState] = useState<'setup' | 'countdown' | 'active' | 'expired' | 'completed'>('setup');
-  const [completedSession, setCompletedSession] = useState<CompletedSessionRecord | null>(null);
-  const [isEnding, setIsEnding] = useState<boolean>(false);
-  const [countdownRemaining, setCountdownRemaining] = useState<number>(3);
-  const [isPaused, setIsPaused] = useState<boolean>(false);
-  const [showInSessionSettings, setShowInSessionSettings] = useState<boolean>(false);
-  const [showDetails, setShowDetails] = useState<boolean>(false);
-  const [revealed, setRevealed] = useState<boolean>(false);
+  const toggleGroup = (n: number) => {
+    setOpenGroups(prev => ({ ...prev, [n]: !prev[n] }));
+  };
 
-  // Timing tracking
-  const [activeElapsedMs, setActiveElapsedMs] = useState<number>(0);
-  const [pausedElapsedMs, setPausedElapsedMs] = useState<number>(0);
-  const [chordRemainingMs, setChordRemainingMs] = useState<number>(0);
-  const [cumulativeExtensionMinutes, setCumulativeExtensionMinutes] = useState<number>(0);
-
-  // History & Navigation
+  // Session State
+  const [sessionState, setSessionState] = useState<'config' | 'countdown' | 'active' | 'completed'>('config');
   const [chordHistory, setChordHistory] = useState<DiatonicChord[]>([]);
-  const [currentIndex, setCurrentIndex] = useState<number>(-1);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
+  const [revealed, setRevealed] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
 
-  // Generator pool state
+  // Timers and Countdown
+  const [countdownRemaining, setCountdownRemaining] = useState<number>(3);
+  const [activeElapsedMs, setActiveElapsedMs] = useState(0);
+  const [pausedElapsedMs, setPausedElapsedMs] = useState(0);
+  const [chordRemainingMs, setChordRemainingMs] = useState(settings.autoIntervalSeconds * 1000);
+
+  // Presets
+  const [presetNameInput, setPresetNameInput] = useState('');
+  const [showPresetSave, setShowPresetSave] = useState(false);
+
+  // Pool & Engine Refs
   const poolRef = useRef<DiatonicChord[]>([]);
   const currentKeyIndexRef = useRef<number>(0);
   const chordsInCurrentKeyRef = useRef<number>(0);
-  const keyTimeElapsedRef = useRef<number>(0);
-
-  // Preset management modal
-  const [newPresetName, setNewPresetName] = useState('');
-  const [showSavePresetModal, setShowSavePresetModal] = useState(false);
-
-  // Wall clock tracking
   const sessionStartTimeRef = useRef<number>(0);
   const lastActiveTimestampRef = useRef<number>(0);
   const lastPauseTimestampRef = useRef<number>(0);
 
-  const currentChord: DiatonicChord | null =
-    currentIndex >= 0 && currentIndex < chordHistory.length ? chordHistory[currentIndex] : null;
-
-  const isBookmarked = currentChord
-    ? bookmarks.some(b => b.chordName === currentChord.name && b.keyTonic === currentChord.keyTonic)
-    : false;
-
-  // ---------------- GENERATOR LOGIC ----------------
-
+  // Key Selection Helper
   const getTonicName = (pc: number): string => {
-    return TONICS_BY_PITCH_CLASS[pc]?.major || 'C';
+    return TONICS_BY_PITCH_CLASS[pc]?.[0] || 'C';
   };
 
+  // Generate Chord based on settings
   const generateNextChord = (): DiatonicChord => {
-    // If forced chords exist (e.g. from collections or bookmarks)
     if (forcedChords && forcedChords.length > 0) {
-      if (settings.ordering === 'sequential') {
-        const nextIdx = chordHistory.length % forcedChords.length;
-        return forcedChords[nextIdx];
-      }
-      return forcedChords[Math.floor(Math.random() * forcedChords.length)];
+      const idx = chordsInCurrentKeyRef.current % forcedChords.length;
+      chordsInCurrentKeyRef.current += 1;
+      return forcedChords[idx];
     }
 
-    // Determine current Key
-    let tonic = getTonicName(settings.enabledPitchClasses[0] ?? 0);
-    if (settings.enabledPitchClasses.length > 1) {
-      if (settings.keyChangeMode === 'after_chords' && chordsInCurrentKeyRef.current >= settings.keyChangeInterval) {
-        currentKeyIndexRef.current = (currentKeyIndexRef.current + 1) % settings.enabledPitchClasses.length;
-        chordsInCurrentKeyRef.current = 0;
-      }
+    // Determine current tonic
+    let tonic = 'C';
+    if (settings.keyProgression === 'circle_of_fifths') {
+      const circlePc = CIRCLE_OF_FIFTHS[currentKeyIndexRef.current % CIRCLE_OF_FIFTHS.length];
+      tonic = getTonicName(circlePc);
+    } else {
       const pc = settings.enabledPitchClasses[currentKeyIndexRef.current % settings.enabledPitchClasses.length];
       tonic = getTonicName(pc);
     }
@@ -213,16 +201,13 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     }
 
     let nextChord: DiatonicChord;
-    if (settings.ordering === 'sequential') {
-      nextChord = poolRef.current.shift()!;
-    } else if (settings.ordering === 'shuffled_cycle') {
+    if (settings.ordering === 'sequential' || settings.ordering === 'shuffled_cycle') {
       nextChord = poolRef.current.shift()!;
     } else if (settings.ordering === 'no_repeat') {
       const lastChord = chordHistory[chordHistory.length - 1];
       const filtered = poolRef.current.filter(c => !lastChord || c.name !== lastChord.name);
       nextChord = (filtered.length > 0 ? filtered : poolRef.current)[Math.floor(Math.random() * poolRef.current.length)];
     } else {
-      // fully random
       nextChord = poolRef.current[Math.floor(Math.random() * poolRef.current.length)];
     }
 
@@ -230,10 +215,9 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     return nextChord;
   };
 
-  // ---------------- SESSION START / CONTROLS ----------------
+  // ---------------- SESSION CONTROLS ----------------
 
   const handleStartSession = () => {
-    // Validate configuration
     if (settings.enabledDegrees.length === 0) {
       alert('Please enable at least one scale degree (1–7).');
       return;
@@ -250,19 +234,15 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     poolRef.current = [];
     currentKeyIndexRef.current = 0;
     chordsInCurrentKeyRef.current = 0;
-    keyTimeElapsedRef.current = 0;
 
     const first = generateNextChord();
     setChordHistory([first]);
     setCurrentIndex(0);
     setRevealed(false);
-    setShowDetails(false);
     setActiveElapsedMs(0);
     setPausedElapsedMs(0);
-    setCumulativeExtensionMinutes(0);
     setChordRemainingMs(settings.autoIntervalSeconds * 1000);
     setIsPaused(false);
-    setCompletedSession(null);
     setIsEnding(false);
 
     sessionStartTimeRef.current = Date.now();
@@ -279,10 +259,8 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
   const handleNextChord = () => {
     setRevealed(false);
     if (currentIndex < chordHistory.length - 1) {
-      // Traversing existing forward
       setCurrentIndex(prev => prev + 1);
     } else {
-      // Generate new chord
       const next = generateNextChord();
       setChordHistory(prev => [...prev, next]);
       setCurrentIndex(prev => prev + 1);
@@ -292,7 +270,6 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
 
   const handlePreviousChord = () => {
     if (currentIndex > 0) {
-      // In auto mode, Previous automatically pauses
       if (settings.progressionMode === 'auto' && !isPaused) {
         setIsPaused(true);
         lastPauseTimestampRef.current = Date.now();
@@ -304,7 +281,6 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
 
   const handleTogglePause = () => {
     if (isPaused) {
-      // Resume: jump to newest chord and restart countdown
       setIsPaused(false);
       setCurrentIndex(chordHistory.length - 1);
       setChordRemainingMs(settings.autoIntervalSeconds * 1000);
@@ -341,18 +317,6 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     }
   };
 
-  const handleToggleBookmark = async () => {
-    if (!currentChord) return;
-    await handleToggleBookmarkForChord(currentChord);
-  };
-
-  const handleExtendSession = (additionalMinutes: number) => {
-    setCumulativeExtensionMinutes(prev => prev + additionalMinutes);
-    setSessionState('active');
-    setIsPaused(false);
-    lastActiveTimestampRef.current = Date.now();
-  };
-
   const handleEndSession = async () => {
     if (isEnding) return;
     setIsEnding(true);
@@ -382,7 +346,6 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
 
       await saveCompletedSession(record, []);
       await saveActiveRecovery(null);
-      setCompletedSession(record);
       setSessionState('completed');
       onSessionComplete(record);
     } catch (err) {
@@ -393,1046 +356,842 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     }
   };
 
-  // ---------------- AUTO-PAUSE & LIFECYCLE ----------------
+  // ---------------- TIMERS EFFECT ----------------
 
-  useEffect(() => {
-    const handleVisibilityChange = () => {
-      if (document.hidden && sessionState === 'active' && !isPaused) {
-        setIsPaused(true);
-        lastPauseTimestampRef.current = Date.now();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, [sessionState, isPaused]);
-
-  // Save active recovery periodically
-  useEffect(() => {
-    if (sessionState === 'active' && currentChord) {
-      saveActiveRecovery({
-        id: 'recovery_trainer',
-        mode: 'instrument',
-        savedAt: Date.now(),
-        activeElapsedMs,
-        settings,
-        state: {
-          chordHistory,
-          currentIndex,
-        },
-      });
-    }
-  }, [sessionState, activeElapsedMs, currentIndex, chordHistory, settings]);
-
-  // Main countdown timer (silent 3s/5s start)
+  // Countdown timer
   useEffect(() => {
     if (sessionState !== 'countdown') return;
-
+    if (countdownRemaining <= 0) {
+      setSessionState('active');
+      lastActiveTimestampRef.current = Date.now();
+      return;
+    }
     const timer = setInterval(() => {
-      setCountdownRemaining(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          setSessionState('active');
-          lastActiveTimestampRef.current = Date.now();
-          return 0;
-        }
-        return prev - 1;
-      });
+      setCountdownRemaining(prev => prev - 1);
     }, 1000);
-
     return () => clearInterval(timer);
-  }, [sessionState]);
+  }, [sessionState, countdownRemaining]);
 
-  // Main tick loop for active practice
+  // Active Session Progression Timer
   useEffect(() => {
     if (sessionState !== 'active' || isPaused) return;
 
     const interval = setInterval(() => {
       const now = Date.now();
-      const delta = now - (lastActiveTimestampRef.current || now);
+      const dt = now - lastActiveTimestampRef.current;
       lastActiveTimestampRef.current = now;
 
-      setActiveElapsedMs(prev => {
-        const next = prev + delta;
+      setActiveElapsedMs(prev => prev + dt);
 
-        // Check planned session duration
-        const totalAllowance = settings.plannedDurationMinutes
-          ? (settings.plannedDurationMinutes + cumulativeExtensionMinutes) * 60 * 1000
-          : null;
-
-        if (totalAllowance && next >= totalAllowance) {
-          setSessionState('expired');
-        }
-
-        return next;
-      });
-
-      // Auto progression countdown
       if (settings.progressionMode === 'auto') {
         setChordRemainingMs(prev => {
-          if (prev <= 100) {
+          if (prev <= dt) {
             handleNextChord();
             return settings.autoIntervalSeconds * 1000;
           }
-          return prev - 100;
+          return prev - dt;
         });
       }
     }, 100);
 
     return () => clearInterval(interval);
-  }, [sessionState, isPaused, settings, cumulativeExtensionMinutes, currentIndex, chordHistory]);
+  }, [sessionState, isPaused, settings.progressionMode, settings.autoIntervalSeconds, currentIndex, chordHistory]);
 
-  // ---------------- RENDER ----------------
+  // Keyboard navigation
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (sessionState !== 'active') return;
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
 
-  if (sessionState === 'setup') {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-200">
-        <div className="border-b border-[#29251F]/15 dark:border-[#EDE8E1]/15 pb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E]">
-              <span>Mode A</span>
-              <span>•</span>
-              <span>Hands-Free Instrument Practice</span>
-            </div>
-            <h1 className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1] mt-1">
-              Instrument Trainer Setup
-            </h1>
-          </div>
+      if (e.key === 'ArrowRight' || e.key === ' ') {
+        e.preventDefault();
+        handleNextChord();
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        handlePreviousChord();
+      } else if (e.key === 'p' || e.key === 'P') {
+        e.preventDefault();
+        handleTogglePause();
+      } else if (e.key === 'b' || e.key === 'B') {
+        e.preventDefault();
+        if (chordHistory[currentIndex]) {
+          handleToggleBookmarkForChord(chordHistory[currentIndex]);
+        }
+      }
+    };
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowSavePresetModal(true)}
-              type="button"
-              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] flex items-center gap-1.5"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Save Preset</span>
-            </button>
-            <button
-              onClick={handleStartSession}
-              type="button"
-              className="px-5 py-2 text-xs font-bold rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] hover:bg-black dark:hover:bg-white flex items-center gap-2 shadow-xs"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>Start Session</span>
-            </button>
-          </div>
-        </div>
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [sessionState, currentIndex, chordHistory, isPaused]);
 
-        {/* Presets List */}
-        {presets.filter(p => p.mode === 'instrument').length > 0 && (
-          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E] block mb-2">
-              Saved Presets
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {presets.filter(p => p.mode === 'instrument').map(p => (
-                <div key={p.id} className="inline-flex items-center gap-1 bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 rounded-lg px-2.5 py-1 text-xs">
-                  <button
-                    onClick={() => setSettings({ ...DEFAULT_TRAINER_SETTINGS, ...p.settings })}
-                    type="button"
-                    className="font-semibold text-[#29251F] dark:text-[#EDE8E1] hover:text-[#A68A55]"
-                  >
-                    {p.name}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (confirm(`Delete preset "${p.name}"?`)) {
-                        await deletePreset(p.id);
-                        onRefreshPresets();
-                      }
-                    }}
-                    type="button"
-                    className="text-[#29251F]/40 hover:text-red-500 p-0.5"
-                    aria-label="Delete preset"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+  // ---------------- RENDER VIEWS ----------------
 
-        {/* Configuration Sections */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Display & Tonics */}
-          <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
-            <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              1. Display & Keys
-            </h3>
+  const currentChord = chordHistory[currentIndex];
+  const isBookmarked = currentChord
+    ? bookmarks.some(b => b.chordName === currentChord.name && b.keyTonic === currentChord.keyTonic)
+    : false;
 
-            <div>
-              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1.5">
-                Primary Display Notation
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['chord_name', 'roman', 'arabic'] as const).map(mode => (
-                  <button
-                    key={mode}
-                    type="button"
-                    onClick={() => setSettings(s => ({ ...s, displayMode: mode }))}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
-                      settings.displayMode === mode
-                        ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
-                        : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                    }`}
-                  >
-                    {mode === 'chord_name' ? 'Chord Names' : mode === 'roman' ? 'Roman (I-vii)' : 'Arabic (1-7)'}
-                  </button>
-                ))}
-              </div>
-            </div>
+  const currentTonic = getTonicName(settings.enabledPitchClasses[0] || 0);
+  const currentScale = settings.enabledScales[0] || 'major';
+  const autoMode = settings.progressionMode === 'auto';
+  const validationError =
+    settings.enabledDegrees.length === 0
+      ? 'Select at least one degree to start.'
+      : settings.enabledPitchClasses.length === 0
+      ? 'Select at least one key.'
+      : '';
 
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-                  Select Keys (Pitch Classes)
-                </label>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSettings(s => ({ ...s, enabledPitchClasses: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11] }))}
-                    className="text-[10px] font-bold text-[#A68A55] hover:underline"
-                  >
-                    Select All
-                  </button>
-                  <span className="text-xs text-[#29251F]/30">•</span>
-                  <button
-                    type="button"
-                    onClick={() => setSettings(s => ({ ...s, enabledPitchClasses: [0] }))}
-                    className="text-[10px] font-bold text-[#A68A55] hover:underline"
-                  >
-                    Clear (C Only)
-                  </button>
-                </div>
-              </div>
-              <div className="grid grid-cols-4 sm:grid-cols-6 gap-1.5">
-                {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map(pc => {
-                  const tonicName = getTonicName(pc);
-                  const isSelected = settings.enabledPitchClasses.includes(pc);
-                  return (
-                    <button
-                      key={pc}
-                      type="button"
-                      onClick={() => {
-                        setSettings(s => {
-                          const exists = s.enabledPitchClasses.includes(pc);
-                          if (exists && s.enabledPitchClasses.length === 1) return s; // Keep at least one
-                          const next = exists
-                            ? s.enabledPitchClasses.filter(x => x !== pc)
-                            : [...s.enabledPitchClasses, pc];
-                          return { ...s, enabledPitchClasses: next };
-                        });
-                      }}
-                      className={`h-9 text-xs font-bold rounded-lg border transition-all ${
-                        isSelected
-                          ? 'bg-[#A68A55] text-white border-[#A68A55]'
-                          : 'bg-[#F8F6F1] dark:bg-[#181614] border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/80 dark:text-[#EDE8E1]/80'
-                      }`}
-                    >
-                      {tonicName}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Scales & Degrees */}
-          <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
-            <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              2. Scales & Degrees
-            </h3>
-
-            <div>
-              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1.5">
-                Enabled Scales
-              </label>
-              <div className="grid grid-cols-3 gap-2">
-                {(['major', 'natural_minor', 'harmonic_minor'] as ScaleType[]).map(sc => {
-                  const isChecked = settings.enabledScales.includes(sc);
-                  return (
-                    <button
-                      key={sc}
-                      type="button"
-                      onClick={() => {
-                        setSettings(s => {
-                          const exists = s.enabledScales.includes(sc);
-                          if (exists && s.enabledScales.length === 1) return s;
-                          return {
-                            ...s,
-                            enabledScales: exists ? s.enabledScales.filter(x => x !== sc) : [...s.enabledScales, sc],
-                          };
-                        });
-                      }}
-                      className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
-                        isChecked
-                          ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
-                          : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                      }`}
-                    >
-                      {formatScaleName(sc)}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-                  Scale Degrees (1–7)
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setSettings(s => ({ ...s, enabledDegrees: [1, 2, 3, 4, 5, 6, 7] }))}
-                  className="text-[10px] font-bold text-[#A68A55] hover:underline"
-                >
-                  Enable All
-                </button>
-              </div>
-              <div className="grid grid-cols-7 gap-1">
-                {[1, 2, 3, 4, 5, 6, 7].map(deg => {
-                  const isSelected = settings.enabledDegrees.includes(deg);
-                  return (
-                    <button
-                      key={deg}
-                      type="button"
-                      onClick={() => {
-                        setSettings(s => {
-                          const exists = s.enabledDegrees.includes(deg);
-                          if (exists && s.enabledDegrees.length === 1) return s;
-                          return {
-                            ...s,
-                            enabledDegrees: exists ? s.enabledDegrees.filter(x => x !== deg) : [...s.enabledDegrees, deg],
-                          };
-                        });
-                      }}
-                      className={`h-9 text-xs font-bold rounded-lg border transition-all ${
-                        isSelected
-                          ? 'bg-[#A68A55] text-white border-[#A68A55]'
-                          : 'bg-[#F8F6F1] dark:bg-[#181614] border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/80 dark:text-[#EDE8E1]/80'
-                      }`}
-                    >
-                      {deg}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              <div>
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                  Chord Voicing
-                </label>
-                <select
-                  value={settings.chordType}
-                  onChange={e => setSettings(s => ({ ...s, chordType: e.target.value as ChordTypeFilter }))}
-                  className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1]"
-                >
-                  <option value="triads">Triads (Default)</option>
-                  <option value="sevenths">7th Chords</option>
-                  <option value="both">Mixed Triads & 7ths</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                  Inversion
-                </label>
-                <select
-                  value={settings.inversion}
-                  onChange={e => setSettings(s => ({ ...s, inversion: e.target.value as any }))}
-                  className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1]"
-                >
-                  <option value="root">Root Position Only</option>
-                  <option value="first">1st Inversion</option>
-                  <option value="second">2nd Inversion</option>
-                  <option value="third">3rd Inversion (7ths)</option>
-                  <option value="any">Random Valid Inversion</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Progression & Pacing */}
-          <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
-            <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              3. Progression & Timing
-            </h3>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                  Progression Mode
-                </label>
-                <select
-                  value={settings.progressionMode}
-                  onChange={e => setSettings(s => ({ ...s, progressionMode: e.target.value as any }))}
-                  className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1]"
-                >
-                  <option value="auto">Auto-Advancing (Timer)</option>
-                  <option value="manual">Manual (Press Next)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                  Time Per Chord
-                </label>
-                <select
-                  disabled={settings.progressionMode === 'manual'}
-                  value={settings.autoIntervalSeconds}
-                  onChange={e => setSettings(s => ({ ...s, autoIntervalSeconds: Number(e.target.value) }))}
-                  className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1] disabled:opacity-40"
-                >
-                  <option value={1}>1 second (Brisk)</option>
-                  <option value={2}>2 seconds</option>
-                  <option value={3}>3 seconds (Standard)</option>
-                  <option value={5}>5 seconds</option>
-                  <option value={8}>8 seconds</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                  Session Duration
-                </label>
-                <select
-                  value={settings.plannedDurationMinutes ?? 'unlimited'}
-                  onChange={e => setSettings(s => ({ ...s, plannedDurationMinutes: e.target.value === 'unlimited' ? null : Number(e.target.value) }))}
-                  className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1]"
-                >
-                  <option value={1}>1 minute</option>
-                  <option value={3}>3 minutes</option>
-                  <option value={5}>5 minutes</option>
-                  <option value={10}>10 minutes</option>
-                  <option value={15}>15 minutes</option>
-                  <option value="unlimited">Unlimited (Manual End)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                  Silent Countdown
-                </label>
-                <select
-                  value={settings.startCountdown}
-                  onChange={e => setSettings(s => ({ ...s, startCountdown: Number(e.target.value) as any }))}
-                  className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1]"
-                >
-                  <option value={0}>None</option>
-                  <option value={3}>3 seconds (Default)</option>
-                  <option value={5}>5 seconds</option>
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Reveal & Ordering Options */}
-          <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
-            <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              4. Ordering & Reveal
-            </h3>
-
-            <div>
-              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                Progression Order
-              </label>
-              <select
-                value={settings.ordering}
-                onChange={e => setSettings(s => ({ ...s, ordering: e.target.value as any }))}
-                className="w-full text-xs font-semibold py-1.5 px-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1]"
-              >
-                <option value="shuffled_cycle">Shuffled Cycle (Exhaust pool before repeat)</option>
-                <option value="no_repeat">No Immediate Repeat Random</option>
-                <option value="sequential">Sequential Scale Order (1-7)</option>
-                <option value="random">Fully Random</option>
-              </select>
-            </div>
-
-            <div className="space-y-2 pt-1">
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[#29251F]/80 dark:text-[#EDE8E1]/80">
-                <input
-                  type="checkbox"
-                  checked={settings.hideChordName}
-                  onChange={e => setSettings(s => ({ ...s, hideChordName: e.target.checked }))}
-                  className="rounded border-[#29251F]/20 text-[#A68A55] focus:ring-[#A68A55]"
-                />
-                <span>Hide Chord Name initially (Require manual "Reveal" or self-testing)</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[#29251F]/80 dark:text-[#EDE8E1]/80">
-                <input
-                  type="checkbox"
-                  checked={settings.hideNotes}
-                  onChange={e => setSettings(s => ({ ...s, hideNotes: e.target.checked }))}
-                  className="rounded border-[#29251F]/20 text-[#A68A55] focus:ring-[#A68A55]"
-                />
-                <span>Hide Individual Spelled Notes by default</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {/* Save Preset Modal */}
-        {showSavePresetModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-sm rounded-xl bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/20 dark:border-[#EDE8E1]/20 p-5 shadow-2xl space-y-4">
-              <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-                Save Current Trainer Settings
-              </h3>
-              <input
-                type="text"
-                placeholder="e.g. Major Triads 3s Cycle"
-                value={newPresetName}
-                onChange={e => setNewPresetName(e.target.value)}
-                className="w-full text-xs font-semibold p-2 rounded-lg bg-[#EAE5DC]/50 dark:bg-[#221F1C]/50 border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] outline-hidden focus:border-[#A68A55]"
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSavePresetModal(false)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md border border-[#29251F]/20 dark:border-[#EDE8E1]/20"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!newPresetName.trim()) return;
-                    await savePreset({
-                      id: `preset_inst_${Date.now()}`,
-                      mode: 'instrument',
-                      name: newPresetName.trim(),
-                      settings: { ...settings },
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
-                    });
-                    onRefreshPresets();
-                    setShowSavePresetModal(false);
-                    setNewPresetName('');
-                  }}
-                  className="px-4 py-1.5 text-xs font-bold rounded-md bg-[#A68A55] text-white"
-                >
-                  Save Preset
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ---------------- COUNTDOWN VIEW ----------------
+  // 1. COUNTDOWN VIEW
   if (sessionState === 'countdown') {
     return (
-      <div className="min-h-[70vh] flex flex-col items-center justify-center space-y-6 text-center animate-in fade-in duration-300">
-        <span className="text-xs uppercase font-bold tracking-widest text-[#A68A55] dark:text-[#CBB07E]">
-          Ready at Instrument • Silent Start
-        </span>
-        <div className="font-editorial text-8xl sm:text-9xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-          {countdownRemaining}
-        </div>
-        <p className="text-xs text-[#29251F]/60 dark:text-[#EDE8E1]/60">
-          First chord will display automatically.
-        </p>
+      <div className="count" role="status" aria-label={`Starting in ${countdownRemaining}`}>
+        <div className="micro">Starting in</div>
+        <div className="n tnum">{countdownRemaining}</div>
+        <button
+          type="button"
+          className="btn !bg-[var(--ink)] !text-white"
+          style={{ marginTop: '32px' }}
+          onClick={() => {
+            setSessionState('active');
+            lastActiveTimestampRef.current = Date.now();
+          }}
+        >
+          Skip countdown
+        </button>
       </div>
     );
   }
 
-  // ---------------- COMPLETED SESSION RESULTS VIEW ----------------
-  if (sessionState === 'completed') {
-    const finalActiveSec = completedSession?.activeDurationSeconds ?? Math.floor(activeElapsedMs / 1000);
-    const finalPausedSec = completedSession?.pausedDurationSeconds ?? Math.floor(pausedElapsedMs / 1000);
-    const finalWallClockSec = completedSession?.wallClockDurationSeconds ?? Math.max(1, Math.floor((Date.now() - sessionStartTimeRef.current) / 1000));
-    const totalCount = chordHistory.length;
-    const avgSecPerChord = totalCount > 0 ? (finalActiveSec / totalCount).toFixed(1) : '0';
+  // 2. ACTIVE SESSION VIEW
+  if (sessionState === 'active' && currentChord) {
+    const hidden = settings.hideNotes && !revealed;
+    const autoProgressFrac = autoMode
+      ? Math.max(0, Math.min(1, 1 - chordRemainingMs / (settings.autoIntervalSeconds * 1000)))
+      : 0;
 
     return (
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-200">
-        <div className="border-b border-[#29251F]/15 dark:border-[#EDE8E1]/15 pb-6 text-center space-y-2">
-          <div className="flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E]">
-            <span>Mode A</span>
-            <span>•</span>
-            <span>Session Completed</span>
+      <div className="view sess">
+        {/* Top Meta Strip */}
+        <div className="meta micro">
+          <div className="muted">
+            Key
+            <b>
+              {currentChord.keyTonic} {formatScaleName(currentChord.scaleType).toLowerCase()}
+            </b>
           </div>
-          <h1 className="font-editorial text-3xl sm:text-4xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-            Instrument Practice Summary
-          </h1>
-          <p className="text-xs sm:text-sm text-[#29251F]/70 dark:text-[#EDE8E1]/70 max-w-xl mx-auto">
-            Session recorded successfully. Review the chords practiced below or bookmark any challenging voicings for focused repetition.
-          </p>
-        </div>
-
-        {/* 4-Card Performance Metric Strip */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
-            <span className="text-[10px] font-bold uppercase text-[#29251F]/60 dark:text-[#EDE8E1]/60 block mb-1">
-              Chords Practiced
-            </span>
-            <span className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-              {totalCount}
-            </span>
-            <span className="text-[10px] text-[#29251F]/50 dark:text-[#EDE8E1]/50 block mt-1">
-              {settings.chordType === 'triads' ? 'Triads' : settings.chordType === 'sevenths' ? 'Sevenths' : 'Mixed chords'}
-            </span>
+          <div className="muted">
+            Chord
+            <b className="tnum">
+              {pad2(currentIndex + 1)} / {chordHistory.length > currentIndex + 1 ? pad2(chordHistory.length) : '∞'}
+            </b>
           </div>
-
-          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
-            <span className="text-[10px] font-bold uppercase text-[#A68A55] dark:text-[#CBB07E] block mb-1">
-              Active Practice Time
-            </span>
-            <span className="font-editorial text-3xl font-bold text-[#A68A55] dark:text-[#CBB07E]">
-              {formatDurationMs(finalActiveSec * 1000)}
-            </span>
-            <span className="text-[10px] text-[#29251F]/50 dark:text-[#EDE8E1]/50 block mt-1">
-              Hands-on instrument
-            </span>
+          <div className="muted">
+            Advance
+            <b>{autoMode ? `Auto · ${settings.autoIntervalSeconds}s` : 'Manual · press Next'}</b>
           </div>
-
-          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
-            <span className="text-[10px] font-bold uppercase text-[#29251F]/60 dark:text-[#EDE8E1]/60 block mb-1">
-              Paused Time
-            </span>
-            <span className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-              {formatDurationMs(finalPausedSec * 1000)}
-            </span>
-            <span className="text-[10px] text-[#29251F]/50 dark:text-[#EDE8E1]/50 block mt-1">
-              Frozen timers
-            </span>
-          </div>
-
-          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
-            <span className="text-[10px] font-bold uppercase text-[#29251F]/60 dark:text-[#EDE8E1]/60 block mb-1">
-              Average Pace
-            </span>
-            <span className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-              {avgSecPerChord}s
-            </span>
-            <span className="text-[10px] text-[#29251F]/50 dark:text-[#EDE8E1]/50 block mt-1">
-              Sec per chord
-            </span>
+          <div className="muted">
+            Time
+            <b className="tnum">{fmtT(activeElapsedMs)}</b>
           </div>
         </div>
 
-        {/* Configuration Recap */}
-        <div className="p-4 rounded-xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10">
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-              <div>
-                <span className="font-semibold text-[#29251F] dark:text-[#EDE8E1]">Keys: </span>
-                {settings.enabledPitchClasses.map(pc => TONICS_BY_PITCH_CLASS[pc]?.major || 'C').join(', ')}
-              </div>
-              <div>
-                <span className="font-semibold text-[#29251F] dark:text-[#EDE8E1]">Scales: </span>
-                {settings.enabledScales.map(formatScaleName).join(', ')}
-              </div>
-              <div>
-                <span className="font-semibold text-[#29251F] dark:text-[#EDE8E1]">Pacing: </span>
-                {settings.progressionMode === 'auto' ? `Auto (${settings.autoIntervalSeconds}s)` : 'Manual step'}
-              </div>
-            </div>
-            <div className="text-[11px] text-[#29251F]/50 dark:text-[#EDE8E1]/50">
-              Total wall clock: {formatDurationMs(finalWallClockSec * 1000)}
-            </div>
-          </div>
+        {/* Progress bar */}
+        <div className="pbar" aria-hidden="true">
+          {autoMode && <i style={{ width: `${autoProgressFrac * 100}%` }} />}
         </div>
 
-        {/* Chords Practiced Exercise Review */}
-        <div className="space-y-4">
-          <div className="flex items-center justify-between border-b border-[#29251F]/10 dark:border-[#EDE8E1]/10 pb-3">
-            <div>
-              <h2 className="font-editorial text-lg font-bold text-[#29251F] dark:text-[#EDE8E1]">
-                Chords Practiced ({chordHistory.length})
-              </h2>
-              <p className="text-xs text-[#29251F]/60 dark:text-[#EDE8E1]/60">
-                Click bookmark on any chord to save it to your Difficult Chords list for focused practice.
-              </p>
+        {/* Main Stage */}
+        <div className="s-main">
+          {/* Left Column: Huge Chord & Degree */}
+          <div className="s-left">
+            <div className="micro muted">
+              Play this chord
+              {currentChord.inversion > 0
+                ? ` · ${['', '1st', '2nd', '3rd'][currentChord.inversion]} inversion`
+                : ' · root position'}
             </div>
-          </div>
+            <h1
+              className={`display chord ${currentChord.name.length > 6 ? 'long' : ''}`}
+              aria-label={currentChord.name}
+            >
+              {currentChord.name}
+            </h1>
+            <div className="roman">
+              <span className="rn">
+                {currentChord.romanNumeral}
+              </span>{' '}
+              <span className="micro muted" style={{ letterSpacing: '.12em', marginLeft: '10px', verticalAlign: 'middle' }}>
+                degree {currentChord.degree} · {currentChord.quality}
+              </span>
+            </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            {chordHistory.map((chord, idx) => {
-              const chordBookmarked = bookmarks.some(
-                b => b.chordName === chord.name && b.keyTonic === chord.keyTonic
-              );
-              return (
-                <div
-                  key={`${chord.name}_${chord.keyTonic}_${idx}`}
-                  className="p-3.5 rounded-xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 flex items-center justify-between gap-3 hover:border-[#A68A55]/40 transition-colors"
+            {/* Note constituent blocks */}
+            <div className="notes-line" aria-label="Chord notes" hidden={hidden}>
+              {currentChord.notes.map((n, i) => (
+                <span key={i} className={i === 0 ? 'bass' : ''}>
+                  {n.spelling}
+                </span>
+              ))}
+            </div>
+
+            {/* In-session tools */}
+            <div className="tools">
+              <button
+                type="button"
+                onClick={() => handleToggleBookmarkForChord(currentChord)}
+                aria-pressed={isBookmarked}
+              >
+                {isBookmarked ? '■ Bookmarked' : '□ Bookmark'}
+              </button>
+              {settings.hideNotes && (
+                <button
+                  type="button"
+                  onClick={() => setRevealed(prev => !prev)}
+                  aria-pressed={revealed}
                 >
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono text-[#29251F]/40 dark:text-[#EDE8E1]/40">
-                        #{idx + 1}
-                      </span>
-                      <span className="font-editorial font-bold text-lg text-[#29251F] dark:text-[#EDE8E1]">
-                        {chord.name}
-                      </span>
-                      <span className="text-xs font-semibold text-[#A68A55] dark:text-[#CBB07E]">
-                        {chord.romanNumeral}
-                      </span>
-                    </div>
-                    <div className="text-xs text-[#29251F]/60 dark:text-[#EDE8E1]/60 mt-0.5">
-                      Key of {chord.keyTonic} {formatScaleName(chord.scaleType)} • Degree {chord.degree}
-                    </div>
-                    <div className="text-[11px] font-mono text-[#29251F]/70 dark:text-[#EDE8E1]/70 mt-1">
-                      {chord.notes.map(n => n.formatted).join(' · ')}
-                    </div>
-                  </div>
+                  {revealed ? 'Hide notes' : 'Reveal notes'}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleEndSession}
+                disabled={isEnding}
+              >
+                {isEnding ? 'Finishing…' : 'Finish session'}
+              </button>
+            </div>
+          </div>
 
-                  <button
-                    onClick={() => handleToggleBookmarkForChord(chord)}
-                    type="button"
-                    className="p-2 rounded-lg text-[#29251F]/60 dark:text-[#EDE8E1]/60 hover:text-[#A68A55] transition-colors shrink-0"
-                    title={chordBookmarked ? 'Bookmarked (click to remove)' : 'Add to Difficult Chords bookmarks'}
-                  >
-                    {chordBookmarked ? (
-                      <BookmarkCheck className="w-4 h-4 text-[#A68A55]" />
-                    ) : (
-                      <Bookmark className="w-4 h-4" />
-                    )}
-                  </button>
-                </div>
-              );
-            })}
+          {/* Right Column: Accent Block + Keyboard Diagram */}
+          <div className="s-right" hidden={settings.showDiagram === false}>
+            <div className="acc-block"></div>
+            {hidden ? (
+              <div className="cover">
+                <button type="button" onClick={() => setRevealed(true)}>
+                  Reveal notes ↗
+                </button>
+              </div>
+            ) : (
+              <div className="piano">
+                <PianoDiagram chord={currentChord} />
+              </div>
+            )}
+            <div className="vlab micro vert" aria-hidden="true">
+              Practice / {pad2(currentIndex + 1)}
+            </div>
           </div>
         </div>
 
-        {/* Action Controls */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-[#29251F]/15 dark:border-[#EDE8E1]/15">
+        {/* Bottom Sticky Transport Bar */}
+        <div className="bar">
           <button
-            onClick={() => setSessionState('setup')}
             type="button"
-            className="px-5 py-2.5 text-xs font-bold rounded-lg border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] transition-colors"
+            className="b pv"
+            onClick={handlePreviousChord}
+            disabled={currentIndex === 0}
           >
-            Change Settings / Setup
+            <span>←</span>
+            <span>Previous</span>
           </button>
-
           <button
-            onClick={handleStartSession}
             type="button"
-            className="px-6 py-2.5 text-xs font-bold rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] hover:bg-black dark:hover:bg-white transition-colors shadow-xs"
+            className="b pa"
+            onClick={handleTogglePause}
+            disabled={!autoMode}
           >
-            Practice Again
+            <span>{isPaused ? 'Resume' : 'Pause'}</span>
+            <span>{autoMode ? (isPaused ? '▶' : '❚❚') : '—'}</span>
+          </button>
+          <button
+            type="button"
+            className="b next"
+            onClick={handleNextChord}
+            aria-label="Next chord"
+          >
+            <span>next</span>
+            <span className="ar" aria-hidden="true">→</span>
           </button>
         </div>
       </div>
     );
   }
 
-  // ---------------- ACTIVE OR EXPIRED SESSION VIEW ----------------
-  const totalAllowanceMs = settings.plannedDurationMinutes
-    ? (settings.plannedDurationMinutes + cumulativeExtensionMinutes) * 60 * 1000
-    : null;
+  // 3. COMPLETED RESULTS VIEW
+  if (sessionState === 'completed') {
+    const totalCount = chordHistory.length;
+    const sessionKeyLabel = `${currentTonic} ${formatScaleName(currentScale).toLowerCase()}`;
+    const bmCount = chordHistory.filter(c =>
+      bookmarks.some(b => b.chordName === c.name && b.keyTonic === c.keyTonic)
+    ).length;
 
-  const sessionProgressPercent = totalAllowanceMs
-    ? Math.min(100, Math.round((activeElapsedMs / totalAllowanceMs) * 100))
-    : 0;
+    return (
+      <div className="view">
+        <div className="res">
+          <div className="num">
+            <div className="micro muted">Session complete / Instrument trainer</div>
+            <div className="display" aria-label={`${totalCount} chords`}>
+              {pad2(totalCount)}
+              <small>chords</small>
+            </div>
+          </div>
 
-  const chordProgressPercent = settings.progressionMode === 'auto'
-    ? Math.max(0, Math.min(100, (chordRemainingMs / (settings.autoIntervalSeconds * 1000)) * 100))
-    : 0;
+          <div className="mx">
+            <div className="mrow micro">
+              <span>Time</span>
+              <b className="tnum">{fmtT(activeElapsedMs)}</b>
+            </div>
+            <div className="mrow micro">
+              <span>Key</span>
+              <b>{sessionKeyLabel}</b>
+            </div>
+            <div className="mrow micro">
+              <span>Bookmarked</span>
+              <b>{bmCount}</b>
+            </div>
+            <div className="mrow micro">
+              <span>Advance</span>
+              <b>{autoMode ? `Auto · ${settings.autoIntervalSeconds}s` : 'Manual'}</b>
+            </div>
+          </div>
+
+          <div className="ctas">
+            <button
+              type="button"
+              className="btn acc-bg big"
+              onClick={handleStartSession}
+            >
+              <span>Practise again</span>
+              <span>↗</span>
+            </button>
+            <button
+              type="button"
+              className="btn big"
+              onClick={() => setSessionState('config')}
+            >
+              <span>Settings</span>
+              <span>←</span>
+            </button>
+            <button
+              type="button"
+              className="btn ghost big"
+              onClick={() => {
+                window.location.hash = '#collections';
+              }}
+            >
+              <span>Collection</span>
+              <span>→</span>
+            </button>
+          </div>
+
+          <div className="review">
+            <h2 className="display">played.</h2>
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Chord</th>
+                  <th>Degree</th>
+                  <th>Notes</th>
+                  <th>Bookmark</th>
+                </tr>
+              </thead>
+              <tbody>
+                {chordHistory.map((c, i) => {
+                  const bkm = bookmarks.some(b => b.chordName === c.name && b.keyTonic === c.keyTonic);
+                  return (
+                    <tr key={i}>
+                      <td className="st">{pad2(i + 1)}</td>
+                      <td className="font-bold">{c.name}</td>
+                      <td>
+                        {c.romanNumeral} ({c.quality})
+                      </td>
+                      <td>{c.notes.map(n => n.spelling).join(' · ')}</td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => handleToggleBookmarkForChord(c)}
+                          className="tag"
+                          style={{ borderColor: bkm ? 'var(--accent)' : 'var(--line)', color: bkm ? 'var(--accent)' : 'inherit' }}
+                        >
+                          {bkm ? '■ Saved' : '□ Save'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 4. CONFIG / SETTINGS VIEW
+  const summaryRows = [
+    ['Key / scale', `${currentTonic} ${formatScaleName(currentScale).toLowerCase()}`],
+    [
+      'Chord set',
+      settings.chordType === 'triads'
+        ? 'Triads'
+        : settings.chordType === 'sevenths'
+        ? 'Sevenths'
+        : 'Triads + sevenths',
+    ],
+    [
+      'Degrees',
+      settings.enabledDegrees.length === 7
+        ? 'All seven'
+        : settings.enabledDegrees.map(d => ROMAN_NUMERALS[d - 1]).join(' ') || 'None',
+    ],
+    [
+      'Advance',
+      settings.progressionMode === 'manual' ? 'Manual · Next' : `Auto · ${settings.autoIntervalSeconds}s`,
+    ],
+  ];
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 md:py-10 space-y-6 select-none animate-in fade-in duration-150">
-      {/* Top Session Status Bar */}
-      <div className="flex items-center justify-between gap-4 p-3.5 rounded-xl bg-[#EAE5DC]/40 dark:bg-[#221F1C]/40 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-xs">
-        <div className="flex items-center gap-3">
-          <span className="font-bold text-[#29251F] dark:text-[#EDE8E1]">
-            {currentChord ? `${currentChord.keyTonic} ${formatScaleName(currentChord.scaleType)}` : ''}
-          </span>
-          <span className="text-[#29251F]/30 dark:text-[#EDE8E1]/30">•</span>
-          <span className="text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-            Chord {currentIndex + 1} of {chordHistory.length}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-[#29251F] dark:text-[#EDE8E1]">
-            <Clock className="w-3.5 h-3.5 text-[#A68A55]" />
-            <span>{formatDurationMs(activeElapsedMs)}</span>
-            {totalAllowanceMs && (
-              <span className="text-[#29251F]/40 dark:text-[#EDE8E1]/40">
-                / {formatDurationMs(totalAllowanceMs)}
-              </span>
-            )}
-          </div>
-
-          <button
-            onClick={() => {
-              // Opening in-session settings automatically pauses
-              if (!isPaused) handleTogglePause();
-              setShowInSessionSettings(true);
-            }}
-            type="button"
-            className="p-1.5 rounded-md hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] text-[#29251F]/70 dark:text-[#EDE8E1]/70"
-            title="Session settings (pauses session)"
-          >
-            <Settings className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-
-      {/* Progress Bars */}
-      <div className="space-y-1">
-        {totalAllowanceMs && (
-          <div className="h-1.5 rounded-full bg-[#EAE5DC] dark:bg-[#221F1C] overflow-hidden">
-            <div
-              className="h-full bg-[#A68A55] transition-all duration-300"
-              style={{ width: `${sessionProgressPercent}%` }}
-            />
-          </div>
-        )}
-        {settings.progressionMode === 'auto' && !isPaused && (
-          <div className="h-1 rounded-full bg-[#EAE5DC]/50 dark:bg-[#221F1C]/50 overflow-hidden">
-            <div
-              className="h-full bg-[#29251F]/30 dark:bg-[#EDE8E1]/30 transition-all duration-100"
-              style={{ width: `${chordProgressPercent}%` }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Expiry Banner if Planned Duration Reached */}
-      {sessionState === 'expired' && (
-        <div className="p-4 rounded-xl bg-[#2D7A4D]/10 dark:bg-[#48A66C]/10 border border-[#2D7A4D]/30 dark:border-[#48A66C]/30 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div>
-            <h4 className="font-editorial font-bold text-sm text-[#2D7A4D] dark:text-[#48A66C]">
-              Planned Practice Time Complete
-            </h4>
-            <p className="text-xs text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-              Current chord remains visible. You can finish your session or extend by +5, +10, or +15 minutes.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => handleExtendSession(5)}
-              type="button"
-              className="px-2.5 py-1 text-xs font-semibold rounded-md border border-[#29251F]/20 dark:border-[#EDE8E1]/20 hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C]"
-            >
-              +5 min
-            </button>
-            <button
-              onClick={() => handleExtendSession(10)}
-              type="button"
-              className="px-2.5 py-1 text-xs font-semibold rounded-md border border-[#29251F]/20 dark:border-[#EDE8E1]/20 hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C]"
-            >
-              +10 min
-            </button>
-            <button
-              onClick={handleEndSession}
-              disabled={isEnding}
-              type="button"
-              className="px-4 py-1.5 text-xs font-bold rounded-md bg-[#2D7A4D] dark:bg-[#48A66C] text-white disabled:opacity-50"
-            >
-              {isEnding ? 'Finishing...' : 'Finish Session'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Dominant Chord Stage */}
-      <div className="min-h-[400px] sm:min-h-[460px] flex flex-col items-center justify-center p-6 sm:p-12 rounded-3xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/15 dark:border-[#EDE8E1]/15 relative">
-        {/* Difficult Chord Bookmark Button */}
-        <button
-          onClick={handleToggleBookmark}
-          type="button"
-          className="absolute top-4 right-4 p-2 rounded-lg text-[#29251F]/60 dark:text-[#EDE8E1]/60 hover:text-[#A68A55] transition-colors"
-          title={isBookmarked ? 'Bookmarked as difficult chord (click to remove)' : 'Bookmark as difficult chord'}
-        >
-          {isBookmarked ? (
-            <BookmarkCheck className="w-5 h-5 text-[#A68A55]" />
-          ) : (
-            <Bookmark className="w-5 h-5" />
-          )}
-        </button>
-
-        {currentChord ? (
-          <div className="text-center space-y-4 max-w-lg">
-            {/* Degree / Roman Supertitle */}
-            <div className="space-y-1">
-              <span className="text-xs uppercase font-bold tracking-widest text-[#A68A55] dark:text-[#CBB07E]">
-                Scale Degree {currentChord.degree}
-              </span>
-              <div className="font-editorial text-2xl sm:text-3xl font-semibold text-[#29251F]/80 dark:text-[#EDE8E1]/80">
-                {currentChord.romanNumeral}
+    <div className="view">
+      <div className="cfg">
+        {/* Left Sticky Header Column */}
+        <aside className="cfg-head">
+          <div className="micro muted">Mode A / Instrument trainer</div>
+          <h1 className="display">practice.</h1>
+          <div className="cfg-sum micro">
+            {summaryRows.map(([label, val]) => (
+              <div key={label}>
+                <span className="muted">{label}</span>
+                <b>{val}</b>
               </div>
-            </div>
+            ))}
+          </div>
+          <div className="warn micro" role="alert" id="warn">
+            {validationError}
+          </div>
+          <button
+            type="button"
+            className="start"
+            onClick={handleStartSession}
+            disabled={!!validationError}
+          >
+            <span className="micro">
+              Trainer · {currentTonic} {formatScaleName(currentScale).toLowerCase()}
+            </span>
+            <span className="big">
+              start<br />session ↗
+            </span>
+          </button>
+        </aside>
 
-            {/* Dominant Chord Name (or Hidden) */}
-            <div className="py-2">
-              {settings.hideChordName && !revealed ? (
-                <div className="space-y-3">
-                  <div className="font-editorial text-5xl sm:text-7xl font-bold tracking-tight text-[#29251F]/20 dark:text-[#EDE8E1]/20">
-                    ???
+        {/* Right Body with Accordion Groups */}
+        <div className="cfg-body">
+          {/* Group 01: Musical Material */}
+          <section className="grp">
+            <button
+              type="button"
+              className="grp-h"
+              onClick={() => toggleGroup(1)}
+              aria-expanded={openGroups[1]}
+            >
+              <span className="micro">01</span>
+              <span className="t">Musical material</span>
+              <span className="micro muted v">
+                {currentTonic} {formatScaleName(currentScale).toLowerCase()} · {settings.chordType}
+              </span>
+              <span className="pm" aria-hidden="true">
+                {openGroups[1] ? '−' : '+'}
+              </span>
+            </button>
+            {openGroups[1] && (
+              <div className="grp-c">
+                {/* 12-Key Picker */}
+                <div className="setting">
+                  <div className="lab micro">
+                    Key
+                    <small>Select the root tonic key for chords.</small>
                   </div>
-                  <button
-                    onClick={() => setRevealed(true)}
-                    type="button"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md bg-[#A68A55] text-white"
-                  >
-                    <Eye className="w-3.5 h-3.5" />
-                    <span>Reveal Chord Name</span>
-                  </button>
+                  <div>
+                    <div className="keys" role="group" aria-label="Key tonic">
+                      {KEY_DISPLAY_LIST.map(k => {
+                        const isSelected = settings.enabledPitchClasses.includes(k.pitchClass);
+                        return (
+                          <button
+                            key={k.pitchClass}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => {
+                              setSettings(prev => ({
+                                ...prev,
+                                enabledPitchClasses: [k.pitchClass],
+                              }));
+                            }}
+                          >
+                            {k.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              ) : (
-                <div className="font-editorial text-6xl sm:text-8xl md:text-9xl font-bold tracking-tight text-[#29251F] dark:text-[#EDE8E1] transition-all">
-                  {currentChord.name}
-                </div>
-              )}
-            </div>
 
-            {/* Spelled Notes or Details */}
-            {(!settings.hideNotes || revealed || showDetails) && (
-              <div className="text-sm font-semibold tracking-wide text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-                Notes: {currentChord.notes.map(n => n.formatted).join(' - ')}
-                {currentChord.inversion !== 0 && (
-                  <span className="text-xs text-[#A68A55] ml-2 font-normal">
-                    (Bass: {currentChord.bass.formatted})
-                  </span>
+                {/* Scale selection */}
+                <div className="setting">
+                  <div className="lab micro">Scale</div>
+                  <div className="seg" role="group">
+                    {(['major', 'minor', 'harmonic_minor'] as ScaleType[]).map(scale => {
+                      const isSel = settings.enabledScales.includes(scale);
+                      return (
+                        <button
+                          key={scale}
+                          type="button"
+                          aria-pressed={isSel}
+                          onClick={() => setSettings(prev => ({ ...prev, enabledScales: [scale] }))}
+                        >
+                          {formatScaleName(scale)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Chord set */}
+                <div className="setting">
+                  <div className="lab micro">Chord set</div>
+                  <div className="seg" role="group">
+                    {(['triads', 'sevenths', 'both'] as ChordTypeFilter[]).map(type => (
+                      <button
+                        key={type}
+                        type="button"
+                        aria-pressed={settings.chordType === type}
+                        onClick={() => setSettings(prev => ({ ...prev, chordType: type }))}
+                      >
+                        {type === 'triads' ? 'Triads' : type === 'sevenths' ? 'Sevenths' : 'Both'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Degrees 1-7 */}
+                <div className="setting">
+                  <div className="lab micro">
+                    Degrees
+                    <small>Toggle which scale degrees are active.</small>
+                  </div>
+                  <div className="degs" role="group" aria-label="Scale degrees">
+                    {[1, 2, 3, 4, 5, 6, 7].map(deg => {
+                      const on = settings.enabledDegrees.includes(deg);
+                      const sampleChord = buildDiatonicChord(
+                        currentTonic,
+                        currentScale,
+                        deg,
+                        settings.chordType === 'sevenths' ? 'seventh' : 'triad'
+                      );
+                      return (
+                        <button
+                          key={deg}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => {
+                            setSettings(prev => {
+                              const exists = prev.enabledDegrees.includes(deg);
+                              const updated = exists
+                                ? prev.enabledDegrees.filter(d => d !== deg)
+                                : [...prev.enabledDegrees, deg].sort();
+                              return { ...prev, enabledDegrees: updated };
+                            });
+                          }}
+                        >
+                          <span className="r">{sampleChord.romanNumeral}</span>
+                          <span className="c">{sampleChord.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Inversions */}
+                <div className="setting">
+                  <div className="lab micro">Inversions</div>
+                  <div className="seg" role="group">
+                    {(['root', 'any'] as Array<'root' | 'any'>).map(inv => (
+                      <button
+                        key={inv}
+                        type="button"
+                        aria-pressed={settings.inversion === inv}
+                        onClick={() => setSettings(prev => ({ ...prev, inversion: inv }))}
+                      >
+                        {inv === 'root' ? 'Root only' : 'Any inversion'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Group 02: Session Flow */}
+          <section className="grp">
+            <button
+              type="button"
+              className="grp-h"
+              onClick={() => toggleGroup(2)}
+              aria-expanded={openGroups[2]}
+            >
+              <span className="micro">02</span>
+              <span className="t">Session flow</span>
+              <span className="micro muted v">
+                {settings.progressionMode === 'manual' ? 'Manual' : `Auto ${settings.autoIntervalSeconds}s`}
+              </span>
+              <span className="pm" aria-hidden="true">
+                {openGroups[2] ? '−' : '+'}
+              </span>
+            </button>
+            {openGroups[2] && (
+              <div className="grp-c">
+                <div className="setting">
+                  <div className="lab micro">
+                    Advance
+                    <small>Manual always keeps the Next button.</small>
+                  </div>
+                  <div className="seg" role="group">
+                    {(['manual', 'auto'] as Array<'manual' | 'auto'>).map(prog => (
+                      <button
+                        key={prog}
+                        type="button"
+                        aria-pressed={settings.progressionMode === prog}
+                        onClick={() => setSettings(prev => ({ ...prev, progressionMode: prog }))}
+                      >
+                        {prog === 'manual' ? 'Manual' : 'Automatic'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {settings.progressionMode === 'auto' && (
+                  <>
+                    <div className="setting">
+                      <div className="lab micro">Interval</div>
+                      <div className="stepper">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSettings(prev => ({
+                              ...prev,
+                              autoIntervalSeconds: Math.max(1, prev.autoIntervalSeconds - 1),
+                            }))
+                          }
+                          aria-label="Decrease interval"
+                        >
+                          −
+                        </button>
+                        <span className="val">{settings.autoIntervalSeconds}s</span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSettings(prev => ({
+                              ...prev,
+                              autoIntervalSeconds: Math.min(20, prev.autoIntervalSeconds + 1),
+                            }))
+                          }
+                          aria-label="Increase interval"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="setting">
+                      <div className="lab micro">Start countdown</div>
+                      <div className="seg" role="group">
+                        {([0, 3, 5] as Array<0 | 3 | 5>).map(cd => (
+                          <button
+                            key={cd}
+                            type="button"
+                            aria-pressed={settings.startCountdown === cd}
+                            onClick={() => setSettings(prev => ({ ...prev, startCountdown: cd }))}
+                          >
+                            {cd === 0 ? 'Off' : `${cd}s`}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
                 )}
               </div>
             )}
+          </section>
 
-            {/* Expandable Theory Details */}
-            {showDetails && (
-              <div className="pt-4 border-t border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-xs text-[#29251F]/60 dark:text-[#EDE8E1]/60 space-y-1 animate-in fade-in">
-                <p>Quality: {currentChord.quality}</p>
-                <p>Root: {currentChord.root.formatted} • Inversion: {currentChord.inversion === 0 ? 'Root Position' : `${currentChord.inversion}st/nd Inversion`}</p>
-                <p>Key Context: {currentChord.keyTonic} {formatScaleName(currentChord.scaleType)}</p>
+          {/* Group 03: Display */}
+          <section className="grp">
+            <button
+              type="button"
+              className="grp-h"
+              onClick={() => toggleGroup(3)}
+              aria-expanded={openGroups[3]}
+            >
+              <span className="micro">03</span>
+              <span className="t">Display</span>
+              <span className="micro muted v">
+                {settings.hideNotes ? 'Notes on reveal' : 'Notes shown'} · Keyboard diagram{' '}
+                {settings.showDiagram !== false ? 'on' : 'off'}
+              </span>
+              <span className="pm" aria-hidden="true">
+                {openGroups[3] ? '−' : '+'}
+              </span>
+            </button>
+            {openGroups[3] && (
+              <div className="grp-c">
+                <div className="setting">
+                  <div className="lab micro">Notes</div>
+                  <div className="seg" role="group">
+                    <button
+                      type="button"
+                      aria-pressed={!settings.hideNotes}
+                      onClick={() => setSettings(prev => ({ ...prev, hideNotes: false }))}
+                    >
+                      Always shown
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={settings.hideNotes}
+                      onClick={() => setSettings(prev => ({ ...prev, hideNotes: true }))}
+                    >
+                      Hidden until reveal
+                    </button>
+                  </div>
+                </div>
+
+                <div className="setting">
+                  <div className="lab micro">Keyboard diagram</div>
+                  <div className="seg" role="group">
+                    <button
+                      type="button"
+                      aria-pressed={settings.showDiagram !== false}
+                      onClick={() => setSettings(prev => ({ ...prev, showDiagram: true }))}
+                    >
+                      On
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={settings.showDiagram === false}
+                      onClick={() => setSettings(prev => ({ ...prev, showDiagram: false }))}
+                    >
+                      Off
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
-          </div>
-        ) : (
-          <div className="text-center text-sm text-[#29251F]/50">No chord generated.</div>
-        )}
-      </div>
+          </section>
 
-      {/* Main Transport & Navigation Controls */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handlePreviousChord}
-            disabled={currentIndex <= 0}
-            type="button"
-            className="px-3.5 py-2 text-xs font-bold rounded-lg border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] disabled:opacity-30 disabled:cursor-not-allowed flex items-center gap-1"
-            title="Step back in chord history (pauses in auto mode)"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            <span className="hidden sm:inline">Previous</span>
-          </button>
+          {/* Group 04: Presets */}
+          <section className="grp">
+            <button
+              type="button"
+              className="grp-h"
+              onClick={() => toggleGroup(4)}
+              aria-expanded={openGroups[4]}
+            >
+              <span className="micro">04</span>
+              <span className="t">Presets</span>
+              <span className="micro muted v">
+                {presets.filter(p => p.mode === 'instrument').length} saved
+              </span>
+              <span className="pm" aria-hidden="true">
+                {openGroups[4] ? '−' : '+'}
+              </span>
+            </button>
+            {openGroups[4] && (
+              <div className="grp-c">
+                <div className="space-y-4">
+                  {presets
+                    .filter(p => p.mode === 'instrument')
+                    .map(p => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between py-2 border-b border-[var(--line)]"
+                      >
+                        <div>
+                          <b className="text-sm">{p.name}</b>
+                          <div className="micro muted">
+                            {p.settings.chordType} · {p.settings.progressionMode}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSettings(prev => ({ ...prev, ...p.settings }));
+                            }}
+                            className="btn !min-h-[38px] !px-3 !text-xs"
+                          >
+                            Load
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await deletePreset(p.id);
+                              onRefreshPresets();
+                            }}
+                            className="btn ghost !min-h-[38px] !px-3 !text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
 
-          <button
-            onClick={handleTogglePause}
-            type="button"
-            className="px-4 py-2 text-xs font-bold rounded-lg border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] flex items-center gap-1.5"
-          >
-            {isPaused ? <Play className="w-4 h-4 fill-current" /> : <Pause className="w-4 h-4" />}
-            <span>{isPaused ? 'Resume' : 'Pause'}</span>
-          </button>
-
-          <button
-            onClick={handleNextChord}
-            type="button"
-            className="px-5 py-2 text-xs font-bold rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] hover:bg-black dark:hover:bg-white flex items-center gap-1.5 shadow-xs"
-          >
-            <span>Next</span>
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setShowDetails(prev => !prev)}
-            type="button"
-            className="px-3 py-2 text-xs font-semibold rounded-lg border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70 hover:bg-[#EAE5DC]/50 dark:hover:bg-[#221F1C]/50"
-          >
-            {showDetails ? 'Hide Details' : 'Details'}
-          </button>
-
-          <button
-            onClick={handleEndSession}
-            disabled={isEnding}
-            type="button"
-            className="px-3 py-2 text-xs font-semibold rounded-lg text-red-600 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors flex items-center gap-1.5"
-          >
-            {isEnding ? 'Ending...' : 'End Session'}
-          </button>
-        </div>
-      </div>
-
-      {/* In-Session Settings Modal */}
-      {showInSessionSettings && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="w-full max-w-md rounded-2xl bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/20 dark:border-[#EDE8E1]/20 p-6 space-y-4 shadow-2xl">
-            <div className="flex items-center justify-between border-b border-[#29251F]/10 dark:border-[#EDE8E1]/10 pb-3">
-              <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-                In-Session Trainer Settings
-              </h3>
-              <button
-                onClick={() => setShowInSessionSettings(false)}
-                type="button"
-                className="p-1 rounded-md text-[#29251F]/60 dark:text-[#EDE8E1]/60"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <p className="text-xs text-[#29251F]/60 dark:text-[#EDE8E1]/60">
-              Session is paused. Changes apply only to future generated chords, never past history.
-            </p>
-
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs font-semibold block mb-1">Time Per Chord</label>
-                <select
-                  value={settings.autoIntervalSeconds}
-                  onChange={e => setSettings(s => ({ ...s, autoIntervalSeconds: Number(e.target.value) }))}
-                  className="w-full text-xs font-semibold p-2 rounded-lg bg-[#EAE5DC]/50 dark:bg-[#221F1C]/50 border border-[#29251F]/20"
-                >
-                  <option value={1}>1 second</option>
-                  <option value={2}>2 seconds</option>
-                  <option value={3}>3 seconds</option>
-                  <option value={5}>5 seconds</option>
-                  <option value={8}>8 seconds</option>
-                </select>
+                  {showPresetSave ? (
+                    <div className="pt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Preset Name"
+                        value={presetNameInput}
+                        onChange={e => setPresetNameInput(e.target.value)}
+                        className="border border-[var(--ink)] bg-[var(--paper)] px-3 py-2 text-sm flex-1 font-bold"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!presetNameInput.trim()) return;
+                          await savePreset({
+                            id: `preset_${Date.now()}`,
+                            mode: 'instrument',
+                            name: presetNameInput.trim(),
+                            createdAt: Date.now(),
+                            settings: { ...settings },
+                          });
+                          setPresetNameInput('');
+                          setShowPresetSave(false);
+                          onRefreshPresets();
+                        }}
+                        className="btn !min-h-[40px] !px-4 !text-xs"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowPresetSave(false)}
+                        className="btn ghost !min-h-[40px] !px-3 !text-xs"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowPresetSave(true)}
+                      className="btn ghost !min-h-[44px] !px-4 !text-xs mt-2"
+                    >
+                      + Save Current as Preset
+                    </button>
+                  )}
+                </div>
               </div>
-
-              <div>
-                <label className="text-xs font-semibold block mb-1">Display Mode</label>
-                <select
-                  value={settings.displayMode}
-                  onChange={e => setSettings(s => ({ ...s, displayMode: e.target.value as any }))}
-                  className="w-full text-xs font-semibold p-2 rounded-lg bg-[#EAE5DC]/50 dark:bg-[#221F1C]/50 border border-[#29251F]/20"
-                >
-                  <option value="chord_name">Chord Name</option>
-                  <option value="roman">Roman Numeral</option>
-                  <option value="arabic">Arabic Degree</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                onClick={() => {
-                  setShowInSessionSettings(false);
-                  handleTogglePause();
-                }}
-                type="button"
-                className="px-4 py-2 text-xs font-bold rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614]"
-              >
-                Apply & Resume
-              </button>
-            </div>
-          </div>
+            )}
+          </section>
         </div>
-      )}
+      </div>
     </div>
   );
 };

@@ -1,46 +1,28 @@
 /**
  * Mode B: No-Instrument Quiz Component
- * Setup, active quiz with typed input + musical toolbar or multiple choice,
- * hints, per-question timers, immediate feedback, scoring, full review,
- * and practice-selected follow-up.
+ * Rebuilt to faithfully match chord-prototype.html
+ * High-contrast editorial layout: 12-column config with Key Selection matrix,
+ * two-column quiz stage with red accent bar and notation toolbar,
+ * and comprehensive results review.
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  HelpCircle,
-  Play,
-  RotateCcw,
-  CheckCircle2,
-  XCircle,
-  AlertTriangle,
-  Lightbulb,
-  ArrowRight,
-  Clock,
-  Sparkles,
-  Filter,
-  CheckSquare,
-  Square,
-  Save,
-  X,
-} from 'lucide-react';
 import {
   ScaleType,
   ChordTypeFilter,
   TONICS_BY_PITCH_CLASS,
   formatScaleName,
-  getStandardKeyTonic,
   KEY_DISPLAY_LIST,
+  buildDiatonicChord,
 } from '../theory/musicEngine';
 import {
   QuizQuestion,
   QuestionDirection,
   AnswerMode,
-  createQuizQuestion,
   gradeQuizAnswer,
   QuizGradingResult,
   generateQuizQuestions,
 } from '../engine/quizEngine';
-import { MusicalToolbar } from './MusicalToolbar';
 import {
   QuizAttemptRecord,
   CompletedSessionRecord,
@@ -49,10 +31,9 @@ import {
   SettingsPreset,
   savePreset,
   deletePreset,
-  getLocalQuizSettings,
-  saveLocalQuizSettings,
   getSavedQuizSettings,
   saveSavedQuizSettings,
+  saveLocalQuizSettings,
 } from '../storage/indexedDb';
 import { ConceptMasteryState } from '../learning/masteryModel';
 
@@ -66,14 +47,15 @@ export interface QuizSettings {
   chordType: ChordTypeFilter;
   ordering: 'shuffled_cycle' | 'no_repeat' | 'random';
   endingMode: 'question_count' | 'timed' | 'unlimited';
-  questionCountLimit: number; // 10, 20, 50, etc.
-  sessionTimeMinutes: number; // e.g. 3, 5, 10
-  perQuestionTimerSeconds: number; // 0 = off, 5, 10, 15, 30
+  questionCountLimit: number;
+  sessionTimeMinutes: number;
+  perQuestionTimerSeconds: number;
   feedbackTiming: 'immediate' | 'results_only';
   feedbackStyle: 'compact' | 'expanded';
-  autoAdvanceDelaySeconds: number; // 0 = manual Next
+  autoAdvanceDelaySeconds: number;
   enableHints: boolean;
   reintroduceMistakes: boolean;
+  showKey?: boolean;
   focusedReviewPool?: 'all' | 'needs_review' | 'due' | 'both';
 }
 
@@ -81,7 +63,7 @@ export const DEFAULT_QUIZ_SETTINGS: QuizSettings = {
   direction: 'degree_to_chord',
   answerMode: 'typed',
   mcOptionCount: 4,
-  enabledPitchClasses: [0], // C
+  enabledPitchClasses: [0], // C by default
   enabledScales: ['major'],
   enabledDegrees: [1, 2, 3, 4, 5, 6, 7],
   chordType: 'triads',
@@ -89,12 +71,13 @@ export const DEFAULT_QUIZ_SETTINGS: QuizSettings = {
   endingMode: 'question_count',
   questionCountLimit: 10,
   sessionTimeMinutes: 5,
-  perQuestionTimerSeconds: 0, // off by default
+  perQuestionTimerSeconds: 0,
   feedbackTiming: 'immediate',
   feedbackStyle: 'compact',
-  autoAdvanceDelaySeconds: 0, // manual Next
+  autoAdvanceDelaySeconds: 0,
   enableHints: true,
   reintroduceMistakes: false,
+  showKey: true,
   focusedReviewPool: 'all',
 };
 
@@ -109,13 +92,21 @@ interface QuestionAttemptSummary {
 }
 
 interface QuizViewProps {
-  onSessionComplete: (session: CompletedSessionRecord, attempts: QuizAttemptRecord[]) => void;
+  onSessionComplete: (session: CompletedSessionRecord) => void;
   conceptStates: Map<string, ConceptMasteryState>;
   presets: SettingsPreset[];
   onRefreshPresets: () => void;
   initialSettings?: Partial<QuizSettings>;
-  overrideQuestions?: QuizQuestion[]; // For "Practice Selected"
+  overrideQuestions?: QuizQuestion[];
 }
+
+const pad2 = (n: number) => String(n).padStart(2, '0');
+const fmtT = (ms: number) => {
+  const s = Math.floor(ms / 1000);
+  return `${pad2(Math.floor(s / 60))}:${pad2(s % 60)}`;
+};
+
+const ROMAN_NUMERALS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 
 export const QuizView: React.FC<QuizViewProps> = ({
   onSessionComplete,
@@ -125,42 +116,44 @@ export const QuizView: React.FC<QuizViewProps> = ({
   initialSettings,
   overrideQuestions,
 }) => {
-  const [settings, setSettings] = useState<QuizSettings>(() => {
-    const local = getLocalQuizSettings();
-    return {
-      ...DEFAULT_QUIZ_SETTINGS,
-      ...(local || {}),
-      ...(initialSettings || {}),
-    };
+  const [settings, setSettings] = useState<QuizSettings>(() => ({
+    ...DEFAULT_QUIZ_SETTINGS,
+    ...initialSettings,
+  }));
+
+  const [openGroups, setOpenGroups] = useState<{ [key: number]: boolean }>({
+    1: true,
+    2: true,
+    3: false,
+    4: false,
   });
 
+  const toggleGroup = (n: number) => {
+    setOpenGroups(prev => ({ ...prev, [n]: !prev[n] }));
+  };
+
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
-  const [quizState, setQuizState] = useState<'setup' | 'active' | 'results'>('setup');
+  const [quizState, setQuizState] = useState<'config' | 'active' | 'completed'>('config');
+
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
-  const [currentIndex, setCurrentIndex] = useState<number>(0);
-  const [typedAnswer, setTypedAnswer] = useState<string>('');
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [typedAnswer, setTypedAnswer] = useState('');
   const [selectedMCOption, setSelectedMCOption] = useState<string | null>(null);
   const [currentResult, setCurrentResult] = useState<QuizGradingResult | null>(null);
-  const [isLocked, setIsLocked] = useState<boolean>(false);
-  const [usedHintThisQuestion, setUsedHintThisQuestion] = useState<boolean>(false);
-  const [showHintText, setShowHintText] = useState<boolean>(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [usedHintThisQuestion, setUsedHintThisQuestion] = useState(false);
+  const [showHintText, setShowHintText] = useState(false);
+  const [hintsUsedTotal, setHintsUsedTotal] = useState(0);
 
-  // Per-question timer
-  const [questionTimeRemaining, setQuestionTimeRemaining] = useState<number>(0);
-
-  // Results & Tracking
   const [attempts, setAttempts] = useState<QuizAttemptRecord[]>([]);
   const [summaryItems, setSummaryItems] = useState<QuestionAttemptSummary[]>([]);
-  const [resultsFilter, setResultsFilter] = useState<'all' | 'correct' | 'wrong' | 'hinted'>('all');
   const [selectedQuestionsForPractice, setSelectedQuestionsForPractice] = useState<Set<number>>(new Set());
 
-  // Session time
   const sessionStartRef = useRef<number>(0);
   const typedInputRef = useRef<HTMLInputElement>(null);
 
-  // Preset modal
-  const [newPresetName, setNewPresetName] = useState('');
-  const [showSavePresetModal, setShowSavePresetModal] = useState(false);
+  const [presetNameInput, setPresetNameInput] = useState('');
+  const [showPresetSave, setShowPresetSave] = useState(false);
 
   const currentQuestion: QuizQuestion | null = questions[currentIndex] || null;
 
@@ -181,21 +174,18 @@ export const QuizView: React.FC<QuizViewProps> = ({
     };
   }, []);
 
-  // Sync if initialSettings prop changes (e.g. from continue last session)
   useEffect(() => {
     if (initialSettings) {
       setSettings(prev => ({ ...prev, ...initialSettings }));
     }
   }, [initialSettings]);
 
-  // Persist settings whenever settings state updates
   useEffect(() => {
     saveLocalQuizSettings(settings);
     saveSavedQuizSettings(settings).catch(() => {});
   }, [settings]);
 
-  // ---------------- KEY SELECTION HELPERS ----------------
-
+  // Key Selection Handlers
   const handleToggleKey = (pc: number) => {
     setSettings(prev => {
       const exists = prev.enabledPitchClasses.includes(pc);
@@ -225,31 +215,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
     setValidationMessage('Please select at least one key before starting the quiz.');
   };
 
-  const handleSelectSingleKey = (pc: number) => {
-    setSettings(prev => ({
-      ...prev,
-      enabledPitchClasses: [pc],
-    }));
-    setValidationMessage(null);
-  };
-
-  const handleToggleScale = (scale: ScaleType) => {
-    setSettings(prev => {
-      const exists = prev.enabledScales.includes(scale);
-      if (exists && prev.enabledScales.length === 1) {
-        setValidationMessage('At least one scale (Major, Natural Minor, or Harmonic Minor) must remain selected.');
-        return prev;
-      }
-      setValidationMessage(null);
-      const next = exists
-        ? prev.enabledScales.filter(s => s !== scale)
-        : [...prev.enabledScales, scale];
-      return { ...prev, enabledScales: next };
-    });
-  };
-
-  // ---------------- QUESTION GENERATION ----------------
-
+  // Question Generation
   const generateQuestionList = (): QuizQuestion[] => {
     if (overrideQuestions && overrideQuestions.length > 0) {
       return [...overrideQuestions];
@@ -263,20 +229,22 @@ export const QuizView: React.FC<QuizViewProps> = ({
       direction: settings.direction,
       answerMode: settings.answerMode,
       mcOptionCount: settings.mcOptionCount,
-      questionCount: settings.endingMode === 'question_count' ? settings.questionCountLimit : 20,
+      questionCount: settings.questionCountLimit,
     });
   };
 
-  // ---------------- START QUIZ ----------------
-
+  // Start Quiz
   const handleStartQuiz = () => {
     if (settings.enabledPitchClasses.length === 0) {
       setValidationMessage('Please select at least one key before starting the quiz.');
       return;
     }
-
     if (settings.enabledScales.length === 0) {
-      setValidationMessage('Please select at least one scale (Major, Natural Minor, or Harmonic Minor) before starting the quiz.');
+      setValidationMessage('Please select at least one scale.');
+      return;
+    }
+    if (settings.enabledDegrees.length === 0) {
+      setValidationMessage('Please select at least one degree.');
       return;
     }
 
@@ -296,16 +264,13 @@ export const QuizView: React.FC<QuizViewProps> = ({
     setIsLocked(false);
     setUsedHintThisQuestion(false);
     setShowHintText(false);
+    setHintsUsedTotal(0);
     setAttempts([]);
     setSummaryItems([]);
     sessionStartRef.current = Date.now();
 
-    if (settings.perQuestionTimerSeconds > 0) {
-      setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
-    }
-
     setQuizState('active');
-    setTimeout(() => typedInputRef.current?.focus(), 100);
+    setTimeout(() => typedInputRef.current?.focus(), 80);
   };
 
   const handleRetryEntireQuiz = () => {
@@ -319,15 +284,13 @@ export const QuizView: React.FC<QuizViewProps> = ({
     setIsLocked(false);
     setUsedHintThisQuestion(false);
     setShowHintText(false);
+    setHintsUsedTotal(0);
     setAttempts([]);
     setSummaryItems([]);
     setSelectedQuestionsForPractice(new Set());
     sessionStartRef.current = Date.now();
-    if (settings.perQuestionTimerSeconds > 0) {
-      setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
-    }
     setQuizState('active');
-    setTimeout(() => typedInputRef.current?.focus(), 100);
+    setTimeout(() => typedInputRef.current?.focus(), 80);
   };
 
   const handleRetryIncorrect = () => {
@@ -343,15 +306,13 @@ export const QuizView: React.FC<QuizViewProps> = ({
     setIsLocked(false);
     setUsedHintThisQuestion(false);
     setShowHintText(false);
+    setHintsUsedTotal(0);
     setAttempts([]);
     setSummaryItems([]);
     setSelectedQuestionsForPractice(new Set());
     sessionStartRef.current = Date.now();
-    if (settings.perQuestionTimerSeconds > 0) {
-      setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
-    }
     setQuizState('active');
-    setTimeout(() => typedInputRef.current?.focus(), 100);
+    setTimeout(() => typedInputRef.current?.focus(), 80);
   };
 
   const handlePracticeSelected = () => {
@@ -368,23 +329,21 @@ export const QuizView: React.FC<QuizViewProps> = ({
     setIsLocked(false);
     setUsedHintThisQuestion(false);
     setShowHintText(false);
+    setHintsUsedTotal(0);
     setAttempts([]);
     setSummaryItems([]);
     setSelectedQuestionsForPractice(new Set());
     sessionStartRef.current = Date.now();
-    if (settings.perQuestionTimerSeconds > 0) {
-      setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
-    }
     setQuizState('active');
-    setTimeout(() => typedInputRef.current?.focus(), 100);
+    setTimeout(() => typedInputRef.current?.focus(), 80);
   };
 
-  // ---------------- SUBMIT ANSWER ----------------
-
+  // Submit Answer
   const handleSubmitAnswer = (answerToGrade?: string) => {
     if (isLocked || !currentQuestion) return;
 
-    const answer = answerToGrade ?? (settings.answerMode === 'multiple_choice' ? selectedMCOption : typedAnswer) ?? '';
+    const answer =
+      answerToGrade ?? (settings.answerMode === 'multiple_choice' ? selectedMCOption : typedAnswer) ?? '';
     if (!answer.trim()) return;
 
     const result = gradeQuizAnswer(currentQuestion, answer);
@@ -414,21 +373,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
         usedHint: usedHintThisQuestion,
         isSkipped: false,
         isTimeout: false,
-        explanation: settings.feedbackStyle === 'expanded' ? currentQuestion.expandedExplanation : currentQuestion.compactExplanation,
+        explanation: currentQuestion.compactExplanation,
       },
     ]);
-
-    // Reintroduce mistakes if option is on
-    if (!result.isCorrect && settings.reintroduceMistakes) {
-      setQuestions(prev => [...prev, currentQuestion]);
-    }
-
-    // Auto advance if configured
-    if (settings.autoAdvanceDelaySeconds > 0) {
-      setTimeout(() => {
-        handleAdvanceToNext();
-      }, settings.autoAdvanceDelaySeconds * 1000);
-    }
   };
 
   const handleSkip = () => {
@@ -461,44 +408,17 @@ export const QuizView: React.FC<QuizViewProps> = ({
       },
     ]);
 
-    handleAdvanceToNext();
-  };
-
-  const handleTimeout = () => {
-    if (isLocked || !currentQuestion) return;
-
-    const attempt: QuizAttemptRecord = {
-      id: `attempt_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-      sessionId: `session_quiz_${sessionStartRef.current}`,
-      conceptId: currentQuestion.conceptId,
-      keyConceptId: currentQuestion.keyConceptId,
-      timestamp: Date.now(),
+    setCurrentResult({
       isCorrect: false,
-      usedHint: usedHintThisQuestion,
-      isSkipped: false,
-      isTimeout: true,
-      userAnswer: '[Timed Out]',
-    };
-
-    setAttempts(prev => [...prev, attempt]);
-    setSummaryItems(prev => [
-      ...prev,
-      {
-        question: currentQuestion,
-        userAnswer: '[Timed Out]',
-        isCorrect: false,
-        usedHint: usedHintThisQuestion,
-        isSkipped: false,
-        isTimeout: true,
-        explanation: currentQuestion.compactExplanation,
-      },
-    ]);
-
-    handleAdvanceToNext();
+      isExactMatch: false,
+      feedbackMessage: 'Question skipped.',
+      normalizedAnswer: '',
+    });
+    setIsLocked(true);
   };
 
   const handleAdvanceToNext = () => {
-    if (currentIndex + 1 < questions.length) {
+    if (currentIndex < questions.length - 1) {
       setCurrentIndex(prev => prev + 1);
       setTypedAnswer('');
       setSelectedMCOption(null);
@@ -506,9 +426,6 @@ export const QuizView: React.FC<QuizViewProps> = ({
       setIsLocked(false);
       setUsedHintThisQuestion(false);
       setShowHintText(false);
-      if (settings.perQuestionTimerSeconds > 0) {
-        setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
-      }
       setTimeout(() => typedInputRef.current?.focus(), 80);
     } else {
       handleFinishQuiz();
@@ -517,85 +434,70 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
   const handleFinishQuiz = async () => {
     const now = Date.now();
-    const durationSeconds = Math.max(1, Math.floor((now - sessionStartRef.current) / 1000));
+    const startTime = sessionStartRef.current || now;
+    const duration = Math.max(1, Math.floor((now - startTime) / 1000));
 
-    const total = summaryItems.length;
     const correctCount = summaryItems.filter(s => s.isCorrect).length;
-    const unhintedCorrect = summaryItems.filter(s => s.isCorrect && !s.usedHint).length;
-    const hintedCount = summaryItems.filter(s => s.isCorrect && s.usedHint).length;
-    const wrongCount = summaryItems.filter(s => !s.isCorrect && !s.isSkipped && !s.isTimeout).length;
-    const skippedCount = summaryItems.filter(s => s.isSkipped).length;
-    const timeoutCount = summaryItems.filter(s => s.isTimeout).length;
-
-    const accuracyPercent = total > 0 ? Math.round((correctCount / total) * 100) : 0;
-    const independentRecallPercent = total > 0 ? Math.round((unhintedCorrect / total) * 100) : 0;
 
     const record: CompletedSessionRecord = {
-      id: `session_quiz_${sessionStartRef.current}`,
+      id: `session_quiz_${now}`,
       mode: 'quiz',
-      startedAt: sessionStartRef.current,
+      startedAt: startTime,
       completedAt: now,
-      activeDurationSeconds: durationSeconds,
+      activeDurationSeconds: duration,
       pausedDurationSeconds: 0,
-      wallClockDurationSeconds: durationSeconds,
+      wallClockDurationSeconds: duration,
       settingsSnapshot: { ...settings },
       summary: {
-        totalItems: total,
+        totalItems: summaryItems.length,
         correctCount,
-        hintedCount,
-        wrongCount,
-        skippedCount,
-        timeoutCount,
-        accuracyPercent,
-        independentRecallPercent,
+        accuracyPercent: summaryItems.length > 0 ? Math.round((correctCount / summaryItems.length) * 100) : 0,
       },
       excludedFromAnalytics: false,
     };
 
     await saveCompletedSession(record, attempts);
     await saveActiveRecovery(null);
-    onSessionComplete(record, attempts);
-    setQuizState('results');
+    setQuizState('completed');
+    onSessionComplete(record);
   };
 
-  // Per-question timer tick
+  const handleInsertSymbol = (symbol: string) => {
+    if (!typedInputRef.current) {
+      setTypedAnswer(prev => prev + symbol);
+      return;
+    }
+    const input = typedInputRef.current;
+    const start = input.selectionStart || typedAnswer.length;
+    const end = input.selectionEnd || typedAnswer.length;
+    const updated = typedAnswer.substring(0, start) + symbol + typedAnswer.substring(end);
+    setTypedAnswer(updated);
+    setTimeout(() => {
+      input.focus();
+      input.setSelectionRange(start + symbol.length, start + symbol.length);
+    }, 10);
+  };
+
+  // Keyboard navigation
   useEffect(() => {
-    if (quizState !== 'active' || isLocked || settings.perQuestionTimerSeconds <= 0) return;
-
-    const timer = setInterval(() => {
-      setQuestionTimeRemaining(prev => {
-        if (prev <= 1) {
-          clearInterval(timer);
-          handleTimeout();
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [quizState, isLocked, currentIndex, settings.perQuestionTimerSeconds]);
-
-  // Keyboard shortcut listener
-  useEffect(() => {
-    if (quizState !== 'active') return;
-
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (quizState !== 'active') return;
+
       if (e.key === 'Enter') {
-        if (isLocked) {
-          handleAdvanceToNext();
-        } else {
-          handleSubmitAnswer();
-        }
-      }
-      // Number keys for Multiple Choice (1..6)
-      if (settings.answerMode === 'multiple_choice' && !isLocked && currentQuestion?.options) {
-        const num = Number(e.key);
-        if (num >= 1 && num <= currentQuestion.options.length) {
+        if (!isLocked) {
           e.preventDefault();
-          const option = currentQuestion.options[num - 1];
-          setSelectedMCOption(option);
-          handleSubmitAnswer(option);
+          handleSubmitAnswer();
+        } else {
+          e.preventDefault();
+          handleAdvanceToNext();
+        }
+      } else if (settings.answerMode === 'multiple_choice' && !isLocked && /^[1-4]$/.test(e.key)) {
+        if (currentQuestion?.multipleChoiceOptions) {
+          const idx = parseInt(e.key, 10) - 1;
+          const opt = currentQuestion.multipleChoiceOptions[idx];
+          if (opt) {
+            setSelectedMCOption(opt);
+          }
         }
       }
     };
@@ -604,931 +506,893 @@ export const QuizView: React.FC<QuizViewProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [quizState, isLocked, typedAnswer, selectedMCOption, currentIndex, questions]);
 
-  // ---------------- SETUP VIEW ----------------
-  if (quizState === 'setup') {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-200">
-        <div className="border-b border-[#29251F]/15 dark:border-[#EDE8E1]/15 pb-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E]">
-              <span>Mode B</span>
-              <span>•</span>
-              <span>Theory & Degree Identification</span>
-            </div>
-            <h1 className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1] mt-1">
-              No-Instrument Quiz Setup
-            </h1>
-          </div>
+  // ---------------- RENDER VIEWS ----------------
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowSavePresetModal(true)}
-              type="button"
-              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] flex items-center gap-1.5"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>Save Preset</span>
-            </button>
-            <button
-              onClick={handleStartQuiz}
-              type="button"
-              className="px-5 py-2 text-xs font-bold rounded-lg bg-[#A68A55] text-white hover:bg-[#8e7443] flex items-center gap-2 shadow-xs"
-            >
-              <Play className="w-4 h-4 fill-current" />
-              <span>Start Quiz</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Presets List */}
-        {presets.filter(p => p.mode === 'quiz').length > 0 && (
-          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E] block mb-2">
-              Saved Presets
-            </span>
-            <div className="flex flex-wrap gap-2">
-              {presets.filter(p => p.mode === 'quiz').map(p => (
-                <div key={p.id} className="inline-flex items-center gap-1 bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 dark:border-[#EDE8E1]/15 rounded-lg px-2.5 py-1 text-xs">
-                  <button
-                    onClick={() => setSettings({ ...DEFAULT_QUIZ_SETTINGS, ...p.settings })}
-                    type="button"
-                    className="font-semibold text-[#29251F] dark:text-[#EDE8E1] hover:text-[#A68A55]"
-                  >
-                    {p.name}
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (confirm(`Delete preset "${p.name}"?`)) {
-                        await deletePreset(p.id);
-                        onRefreshPresets();
-                      }
-                    }}
-                    type="button"
-                    className="text-[#29251F]/40 hover:text-red-500 p-0.5"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Validation Warning Banner */}
-        {validationMessage && (
-          <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in shadow-xs">
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-            <span>{validationMessage}</span>
-          </div>
-        )}
-
-        {/* 1. KEY SELECTION SECTION */}
-        <section aria-labelledby="key-selection-heading" className="p-5 sm:p-6 rounded-2xl bg-[#EAE5DC]/25 dark:bg-[#221F1C]/25 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2.5">
-                <h2 id="key-selection-heading" className="font-editorial font-bold text-lg text-[#29251F] dark:text-[#EDE8E1]">
-                  Key Selection
-                </h2>
-                <span
-                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
-                    settings.enabledPitchClasses.length === 0
-                      ? 'bg-red-500/15 border-red-500/30 text-red-600 dark:text-red-400'
-                      : settings.enabledPitchClasses.length === 12
-                        ? 'bg-[#A68A55]/15 border-[#A68A55]/30 text-[#A68A55] dark:text-[#CBB07E]'
-                        : 'bg-[#29251F]/10 dark:bg-[#EDE8E1]/10 border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/80 dark:text-[#EDE8E1]/80'
-                  }`}
-                >
-                  {settings.enabledPitchClasses.length === 0
-                    ? '0 Keys Selected'
-                    : settings.enabledPitchClasses.length === 12
-                      ? 'All 12 Keys Selected'
-                      : settings.enabledPitchClasses.length === 1
-                        ? `Fixed Key: ${KEY_DISPLAY_LIST.find(k => k.pitchClass === settings.enabledPitchClasses[0])?.fullName}`
-                        : `${settings.enabledPitchClasses.length} of 12 Keys Selected`}
-                </span>
-              </div>
-              <p className="text-xs text-[#29251F]/65 dark:text-[#EDE8E1]/65 mt-1">
-                Select one fixed key, multiple keys, or all 12 chromatic tonic pitch classes. Questions will be generated exclusively from your chosen keys.
-              </p>
-            </div>
-
-            {/* Quick Key Selection Controls */}
-            <div className="flex items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={handleSelectAllKeys}
-                className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[#A68A55]/40 text-[#A68A55] dark:text-[#CBB07E] hover:bg-[#A68A55]/10 transition-colors"
-              >
-                Select All
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSelectSingleKey(0)}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70 hover:bg-[#EAE5DC]/50 dark:hover:bg-[#221F1C]/50 transition-colors"
-                title="Select single fixed key: C"
-              >
-                Fixed C
-              </button>
-              <button
-                type="button"
-                onClick={handleClearAllKeys}
-                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70 hover:text-red-500 hover:border-red-300 transition-colors"
-              >
-                Clear All
-              </button>
-            </div>
-          </div>
-
-          {/* Key Buttons Grid (12 pitch classes) */}
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2">
-            {KEY_DISPLAY_LIST.map(k => {
-              const isSelected = settings.enabledPitchClasses.includes(k.pitchClass);
-              return (
-                <button
-                  key={k.pitchClass}
-                  type="button"
-                  onClick={() => handleToggleKey(k.pitchClass)}
-                  className={`min-h-12 py-2 px-1 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer select-none ${
-                    isSelected
-                      ? 'bg-[#A68A55] text-white border-[#A68A55] shadow-xs ring-2 ring-[#A68A55]/30'
-                      : 'bg-[#F8F6F1] dark:bg-[#181614] border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1] hover:border-[#A68A55] hover:bg-[#EAE5DC]/40 dark:hover:bg-[#221F1C]/40'
-                  }`}
-                  aria-pressed={isSelected}
-                  title={`Toggle key ${k.fullName}`}
-                >
-                  <span className="text-base sm:text-sm font-bold font-editorial leading-tight">
-                    {k.primaryName}
-                  </span>
-                  <span className={`text-[10px] leading-tight font-sans ${isSelected ? 'text-white/80' : 'text-[#29251F]/50 dark:text-[#EDE8E1]/50'}`}>
-                    {k.enharmonicName ? k.enharmonicName : ' '}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Zero Keys Validation Notice */}
-          {settings.enabledPitchClasses.length === 0 && (
-            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-semibold flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              <span>No keys selected. Please select at least one key before starting the quiz.</span>
-            </div>
-          )}
-        </section>
-
-        {/* 2. THREE CONFIGURATION CARDS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {/* Card A: Question Format */}
-          <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
-            <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              Question Format
-            </h3>
-
-            <div>
-              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1.5">
-                Question Direction
-              </label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { id: 'degree_to_chord', label: 'Deg → Chord' },
-                  { id: 'chord_to_degree', label: 'Chord → Deg' },
-                  { id: 'mixed', label: 'Mixed' },
-                ].map(d => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => setSettings(s => ({ ...s, direction: d.id as any }))}
-                    className={`py-1.5 px-1.5 text-xs font-semibold rounded-lg border transition-all text-center ${
-                      settings.direction === d.id
-                        ? 'bg-[#A68A55] text-white border-[#A68A55]'
-                        : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                    }`}
-                  >
-                    {d.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1.5">
-                Answer Input Mode
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => setSettings(s => ({ ...s, answerMode: 'typed' }))}
-                  className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all text-center ${
-                    settings.answerMode === 'typed'
-                      ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
-                      : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                  }`}
-                >
-                  Typed (Notation)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSettings(s => ({ ...s, answerMode: 'multiple_choice' }))}
-                  className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all text-center ${
-                    settings.answerMode === 'multiple_choice'
-                      ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
-                      : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                  }`}
-                >
-                  Multiple Choice
-                </button>
-              </div>
-            </div>
-
-            {settings.answerMode === 'multiple_choice' && (
-              <div>
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                  Option Count
-                </label>
-                <div className="grid grid-cols-4 gap-1.5">
-                  {[2, 3, 4, 6].map(count => (
-                    <button
-                      key={count}
-                      type="button"
-                      onClick={() => setSettings(s => ({ ...s, mcOptionCount: count as any }))}
-                      className={`py-1 text-xs font-bold rounded-lg border ${
-                        settings.mcOptionCount === count
-                          ? 'bg-[#A68A55] text-white border-[#A68A55]'
-                          : 'border-[#29251F]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                      }`}
-                    >
-                      {count}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Card B: Scales & Chord Types */}
-          <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
-            <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              Scales & Chords
-            </h3>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-                  Enabled Scales
-                </label>
-                <span className="text-[10px] text-[#A68A55] font-semibold">
-                  {settings.enabledScales.length} selected
-                </span>
-              </div>
-              <div className="grid grid-cols-1 gap-1.5">
-                {([
-                  { id: 'major', label: 'Major Scale' },
-                  { id: 'natural_minor', label: 'Natural Minor' },
-                  { id: 'harmonic_minor', label: 'Harmonic Minor' },
-                ] as const).map(sc => {
-                  const isChecked = settings.enabledScales.includes(sc.id);
-                  return (
-                    <button
-                      key={sc.id}
-                      type="button"
-                      onClick={() => handleToggleScale(sc.id)}
-                      className={`py-1.5 px-3 text-xs font-semibold rounded-lg border transition-all flex items-center justify-between ${
-                        isChecked
-                          ? 'bg-[#A68A55] text-white border-[#A68A55]'
-                          : 'bg-[#F8F6F1] dark:bg-[#181614] border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                      }`}
-                    >
-                      <span>{sc.label}</span>
-                      <span className="text-[10px] opacity-75">{isChecked ? '✓' : ''}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1.5">
-                Diatonic Chord Types
-              </label>
-              <div className="grid grid-cols-3 gap-1.5">
-                {[
-                  { id: 'triads', label: 'Triads' },
-                  { id: 'sevenths', label: '7th Chords' },
-                  { id: 'both', label: 'Both' },
-                ].map(ct => (
-                  <button
-                    key={ct.id}
-                    type="button"
-                    onClick={() => setSettings(s => ({ ...s, chordType: ct.id as any }))}
-                    className={`py-1.5 px-1 text-xs font-semibold rounded-lg border transition-all text-center ${
-                      settings.chordType === ct.id
-                        ? 'bg-[#A68A55] text-white border-[#A68A55]'
-                        : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                    }`}
-                  >
-                    {ct.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                Scale Degrees
-              </label>
-              <div className="grid grid-cols-7 gap-1">
-                {[1, 2, 3, 4, 5, 6, 7].map(deg => {
-                  const isDegChecked = settings.enabledDegrees.includes(deg);
-                  return (
-                    <button
-                      key={deg}
-                      type="button"
-                      onClick={() => {
-                        setSettings(s => {
-                          const exists = s.enabledDegrees.includes(deg);
-                          if (exists && s.enabledDegrees.length === 1) return s;
-                          return {
-                            ...s,
-                            enabledDegrees: exists
-                              ? s.enabledDegrees.filter(d => d !== deg)
-                              : [...s.enabledDegrees, deg].sort(),
-                          };
-                        });
-                      }}
-                      className={`h-8 text-xs font-bold rounded-lg border ${
-                        isDegChecked
-                          ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
-                          : 'border-[#29251F]/15 text-[#29251F]/50 dark:text-[#EDE8E1]/50'
-                      }`}
-                    >
-                      {deg}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </div>
-
-          {/* Card C: Session Scope & Ending */}
-          <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
-            <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              Session & Feedback
-            </h3>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs font-semibold block mb-1">Ending Mode</label>
-                <select
-                  value={settings.endingMode}
-                  onChange={e => setSettings(s => ({ ...s, endingMode: e.target.value as any }))}
-                  className="w-full text-xs font-semibold p-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15"
-                >
-                  <option value="question_count">Count Limit</option>
-                  <option value="unlimited">Unlimited</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold block mb-1">Questions</label>
-                <select
-                  disabled={settings.endingMode !== 'question_count'}
-                  value={settings.questionCountLimit}
-                  onChange={e => setSettings(s => ({ ...s, questionCountLimit: Number(e.target.value) }))}
-                  className="w-full text-xs font-semibold p-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15 disabled:opacity-40"
-                >
-                  <option value={10}>10 Questions</option>
-                  <option value={20}>20 Questions</option>
-                  <option value={50}>50 Questions</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <label className="text-xs font-semibold block mb-1">Timer</label>
-                <select
-                  value={settings.perQuestionTimerSeconds}
-                  onChange={e => setSettings(s => ({ ...s, perQuestionTimerSeconds: Number(e.target.value) }))}
-                  className="w-full text-xs font-semibold p-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15"
-                >
-                  <option value={0}>Off (Untimed)</option>
-                  <option value={5}>5 seconds</option>
-                  <option value={10}>10 seconds</option>
-                  <option value={15}>15 seconds</option>
-                  <option value={30}>30 seconds</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold block mb-1">Feedback</label>
-                <select
-                  value={settings.feedbackStyle}
-                  onChange={e => setSettings(s => ({ ...s, feedbackStyle: e.target.value as any }))}
-                  className="w-full text-xs font-semibold p-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15"
-                >
-                  <option value="compact">Compact</option>
-                  <option value="expanded">Expanded</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-2 pt-1">
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[#29251F]/80 dark:text-[#EDE8E1]/80">
-                <input
-                  type="checkbox"
-                  checked={settings.enableHints}
-                  onChange={e => setSettings(s => ({ ...s, enableHints: e.target.checked }))}
-                  className="rounded border-[#29251F]/20 text-[#A68A55]"
-                />
-                <span>Enable Hints</span>
-              </label>
-
-              <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[#29251F]/80 dark:text-[#EDE8E1]/80">
-                <input
-                  type="checkbox"
-                  checked={settings.reintroduceMistakes}
-                  onChange={e => setSettings(s => ({ ...s, reintroduceMistakes: e.target.checked }))}
-                  className="rounded border-[#29251F]/20 text-[#A68A55]"
-                />
-                <span>Reintroduce Mistakes</span>
-              </label>
-            </div>
-          </div>
-        </div>
-
-        {/* Start Quiz Footer CTA */}
-        <div className="flex flex-col items-center gap-2 pt-2">
-          <button
-            onClick={handleStartQuiz}
-            type="button"
-            className="w-full sm:w-auto px-10 py-3.5 text-sm font-bold rounded-xl bg-[#A68A55] text-white hover:bg-[#8e7443] flex items-center justify-center gap-2.5 shadow-md transition-all active:scale-98"
-          >
-            <Play className="w-4 h-4 fill-current" />
-            <span>Start Quiz Session</span>
-          </button>
-          {settings.enabledPitchClasses.length === 0 && (
-            <p className="text-xs text-red-500 font-semibold">
-              Please select at least one key above to start.
-            </p>
-          )}
-        </div>
-
-        {/* Save Preset Modal */}
-        {showSavePresetModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-            <div className="w-full max-w-sm rounded-xl bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/20 dark:border-[#EDE8E1]/20 p-5 shadow-2xl space-y-4">
-              <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-                Save Current Quiz Settings
-              </h3>
-              <input
-                type="text"
-                placeholder="e.g. 10 Q Typed Triads"
-                value={newPresetName}
-                onChange={e => setNewPresetName(e.target.value)}
-                className="w-full text-xs font-semibold p-2 rounded-lg bg-[#EAE5DC]/50 dark:bg-[#221F1C]/50 border border-[#29251F]/20 outline-hidden"
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowSavePresetModal(false)}
-                  className="px-3 py-1.5 text-xs font-semibold rounded-md border border-[#29251F]/20"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (!newPresetName.trim()) return;
-                    await savePreset({
-                      id: `preset_quiz_${Date.now()}`,
-                      mode: 'quiz',
-                      name: newPresetName.trim(),
-                      settings: { ...settings },
-                      createdAt: Date.now(),
-                      updatedAt: Date.now(),
-                    });
-                    onRefreshPresets();
-                    setShowSavePresetModal(false);
-                    setNewPresetName('');
-                  }}
-                  className="px-4 py-1.5 text-xs font-bold rounded-md bg-[#A68A55] text-white"
-                >
-                  Save Preset
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  // ---------------- ACTIVE QUIZ VIEW ----------------
+  // 1. ACTIVE QUIZ SESSION VIEW
   if (quizState === 'active' && currentQuestion) {
-    const questionNum = currentIndex + 1;
-    const totalQuestions = questions.length;
+    const isD2C = currentQuestion.direction === 'degree_to_chord';
+    const bigPromptText = isD2C
+      ? `${currentQuestion.targetDegree}`
+      : currentQuestion.targetChord.name;
+    const subtitleText = isD2C
+      ? `Degree ${currentQuestion.targetDegree} · ${currentQuestion.chordType} chord`
+      : `Which degree is this chord in ${currentQuestion.keyTonic} ${formatScaleName(currentQuestion.scaleType).toLowerCase()}?`;
+    const promptKicker = isD2C ? 'Name the chord' : 'Name the degree';
+
+    const showKeyBadge = settings.showKey !== false;
+    const progressFrac = (currentIndex + (isLocked ? 1 : 0)) / questions.length;
 
     return (
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-6 animate-in fade-in duration-150">
-        {/* Top Progress & Stats Strip */}
-        <div className="flex items-center justify-between text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 border-b border-[#29251F]/10 dark:border-[#EDE8E1]/10 pb-3">
-          <span>
-            Question {questionNum} of {totalQuestions}
-          </span>
-          <div className="flex items-center gap-3">
-            {settings.perQuestionTimerSeconds > 0 && (
-              <span className={`font-mono flex items-center gap-1 ${questionTimeRemaining <= 3 ? 'text-red-500 font-bold animate-pulse' : ''}`}>
-                <Clock className="w-3.5 h-3.5" />
-                {questionTimeRemaining}s
-              </span>
-            )}
-            <button
-              onClick={handleSkip}
-              type="button"
-              className="hover:text-[#A68A55] transition-colors"
-            >
-              Skip
-            </button>
-            <button
-              onClick={handleFinishQuiz}
-              type="button"
-              className="text-red-500 hover:underline"
-            >
-              End Quiz
-            </button>
+      <div className="view sess">
+        {/* Top Meta Strip */}
+        <div className="meta micro">
+          <div className="muted">
+            Key
+            <b>
+              {showKeyBadge
+                ? `${currentQuestion.keyTonic} ${formatScaleName(currentQuestion.scaleType).toLowerCase()}`
+                : 'Hidden'}
+            </b>
+          </div>
+          <div className="muted">
+            Question
+            <b className="tnum">
+              {pad2(currentIndex + 1)} / {pad2(questions.length)}
+            </b>
+          </div>
+          <div className="muted">
+            Mode
+            <b>{settings.answerMode === 'typed' ? 'Typed' : 'Multiple choice'}</b>
+          </div>
+          <div className="muted">
+            Hints
+            <b>{settings.enableHints ? `${hintsUsedTotal} used` : 'Off'}</b>
           </div>
         </div>
 
-        {/* Question Card */}
-        <div className="p-6 sm:p-10 rounded-2xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-center space-y-4">
-          <span className="text-xs uppercase font-bold tracking-widest text-[#A68A55] dark:text-[#CBB07E]">
-            {currentQuestion.prompt.title}
-          </span>
-
-          <div className="space-y-1">
-            <h2 className="font-editorial text-4xl sm:text-6xl font-bold tracking-tight text-[#29251F] dark:text-[#EDE8E1]">
-              {currentQuestion.prompt.primaryText}
-            </h2>
-            <p className="text-sm font-semibold text-[#29251F]/60 dark:text-[#EDE8E1]/60">
-              {currentQuestion.prompt.subText}
-            </p>
-          </div>
-
-          {/* Hint Section */}
-          {settings.enableHints && (
-            <div className="pt-2">
-              {!showHintText ? (
-                <button
-                  onClick={() => {
-                    setShowHintText(true);
-                    setUsedHintThisQuestion(true);
-                  }}
-                  type="button"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#A68A55] hover:underline"
-                >
-                  <Lightbulb className="w-3.5 h-3.5" />
-                  <span>Show Reasoning Hint</span>
-                </button>
-              ) : (
-                <p className="text-xs p-2.5 rounded-lg bg-[#A68A55]/10 text-[#A68A55] dark:text-[#CBB07E] font-medium max-w-md mx-auto animate-in fade-in">
-                  💡 Hint: {currentQuestion.hint}
-                </p>
-              )}
-            </div>
-          )}
+        {/* Progress Bar */}
+        <div className="pbar" aria-hidden="true">
+          <i style={{ width: `${progressFrac * 100}%` }} />
         </div>
 
-        {/* Input Area */}
-        <div className="space-y-3">
-          {settings.answerMode === 'typed' ? (
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <input
-                  ref={typedInputRef}
-                  type="text"
-                  disabled={isLocked}
-                  placeholder={currentQuestion.direction === 'degree_to_chord' ? 'e.g. Cmaj, Dm, Bdim' : 'e.g. 1, 2, IV'}
-                  value={typedAnswer}
-                  onChange={e => setTypedAnswer(e.target.value)}
-                  className="flex-1 text-base font-semibold p-3 rounded-xl bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] outline-hidden focus:border-[#A68A55] shadow-xs"
-                />
-                {!isLocked ? (
-                  <button
-                    onClick={() => handleSubmitAnswer()}
-                    type="button"
-                    className="px-6 text-xs font-bold rounded-xl bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] hover:bg-black dark:hover:bg-white transition-colors"
-                  >
-                    Submit
-                  </button>
-                ) : (
-                  <button
-                    onClick={handleAdvanceToNext}
-                    type="button"
-                    className="px-6 text-xs font-bold rounded-xl bg-[#A68A55] text-white hover:bg-[#8e7443] transition-colors flex items-center gap-1"
-                  >
-                    <span>Next</span>
-                    <ArrowRight className="w-4 h-4" />
-                  </button>
-                )}
-              </div>
+        {/* Question Main Stage */}
+        <div className="q-main">
+          {/* Left Column: Prompt */}
+          <div className="q-prompt">
+            <div className="micro muted">{promptKicker}</div>
+            <h1
+              className={`display big ${bigPromptText.length > 5 ? 'long' : ''}`}
+              aria-label={isD2C ? `Degree ${currentQuestion.targetDegree}` : currentQuestion.targetChord.name}
+            >
+              {bigPromptText}
+            </h1>
+            <div className="sub">{subtitleText}</div>
+          </div>
 
-              {/* On-screen musical notation toolbar */}
-              <MusicalToolbar
-                inputRef={typedInputRef}
-                mode={currentQuestion.direction === 'degree_to_chord' ? 'chord' : 'degree'}
-                value={typedAnswer}
-                onChange={setTypedAnswer}
-                disabled={isLocked}
-              />
-            </div>
-          ) : (
-            // Multiple Choice Grid
-            <div className="grid grid-cols-2 gap-3">
-              {currentQuestion.options?.map((opt, idx) => {
-                const isSelected = selectedMCOption === opt;
-                let btnStyle = 'bg-[#F8F6F1] dark:bg-[#181614] border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1]';
-                if (isLocked) {
-                  if (opt === currentQuestion.correctAnswerText) {
-                    btnStyle = 'bg-[#2D7A4D] text-white border-[#2D7A4D]';
-                  } else if (isSelected && !currentResult?.isCorrect) {
-                    btnStyle = 'bg-red-600 text-white border-red-600';
-                  }
-                } else if (isSelected) {
-                  btnStyle = 'border-[#A68A55] ring-2 ring-[#A68A55]';
-                }
+          {/* Right Column: Answer Input & Controls */}
+          <div className="q-ans">
+            <div className="acc-bar" aria-hidden="true"></div>
 
-                return (
-                  <button
-                    key={opt}
+            {settings.answerMode === 'typed' ? (
+              <div>
+                <div className="field">
+                  <label className="micro" htmlFor="ans">
+                    {isD2C ? 'Your chord (e.g. B♭m7, G, F#dim)' : 'Your answer (e.g. 5 or V)'}
+                  </label>
+                  <input
+                    id="ans"
+                    ref={typedInputRef}
+                    autoComplete="off"
+                    autoCapitalize="off"
+                    spellCheck="false"
+                    inputMode="text"
+                    value={typedAnswer}
+                    onChange={e => setTypedAnswer(e.target.value)}
                     disabled={isLocked}
-                    type="button"
-                    onClick={() => {
-                      setSelectedMCOption(opt);
-                      handleSubmitAnswer(opt);
-                    }}
-                    className={`p-4 rounded-xl border text-sm sm:text-base font-bold text-center transition-all ${btnStyle}`}
-                  >
-                    <span className="text-[10px] text-[#29251F]/40 dark:text-[#EDE8E1]/40 mr-1.5 font-normal">
-                      [{idx + 1}]
-                    </span>
-                    {opt}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Locked Result Feedback */}
-          {isLocked && currentResult && (
-            <div
-              className={`p-4 rounded-xl border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200 ${
-                currentResult.isCorrect
-                  ? 'bg-[#2D7A4D]/10 dark:bg-[#48A66C]/10 border-[#2D7A4D]/30 dark:border-[#48A66C]/30 text-[#2D7A4D] dark:text-[#48A66C]'
-                  : 'bg-red-500/10 border-red-500/30 text-red-600 dark:text-red-400'
-              }`}
-            >
-              <div className="flex items-start gap-3">
-                {currentResult.isCorrect ? (
-                  <CheckCircle2 className="w-5 h-5 shrink-0 mt-0.5" />
-                ) : (
-                  <XCircle className="w-5 h-5 shrink-0 mt-0.5" />
-                )}
-                <div>
-                  <h4 className="font-bold text-sm">{currentResult.feedbackMessage}</h4>
-                  <p className="text-xs text-[#29251F]/70 dark:text-[#EDE8E1]/70 mt-1">
-                    {settings.feedbackStyle === 'expanded'
-                      ? currentQuestion.expandedExplanation
-                      : currentQuestion.compactExplanation}
-                  </p>
+                    placeholder={isD2C ? 'D, Em, G7…' : '1–7 or I–VII'}
+                  />
                 </div>
-              </div>
 
-              {settings.answerMode === 'multiple_choice' && (
+                {/* Notation Helpers toolbar */}
+                {!isLocked && (
+                  <div className="helpers">
+                    <span className="micro muted">Insert</span>
+                    {['♯', '♭', '°', 'ø', 'Δ'].map(s => (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => handleInsertSymbol(s)}
+                        aria-label={`Insert ${s}`}
+                      >
+                        {s}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              /* Multiple Choice Options */
+              <div className="mc" role="group" aria-label="Answer choices">
+                {currentQuestion.multipleChoiceOptions?.map((opt, i) => {
+                  const isSelected = selectedMCOption === opt;
+                  let cls = '';
+                  if (isLocked) {
+                    if (opt === currentQuestion.correctAnswer) cls = 'right';
+                    else if (isSelected) cls = 'wrong';
+                    else cls = 'dim';
+                  }
+
+                  return (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => !isLocked && setSelectedMCOption(opt)}
+                      aria-pressed={isSelected}
+                      className={cls}
+                      disabled={isLocked}
+                    >
+                      <span className="i">{pad2(i + 1)}</span>
+                      <span className="o">{opt}</span>
+                      <span className="m" aria-hidden="true"></span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Action Tools */}
+            <div className="qtools">
+              <button
+                type="button"
+                className="pri"
+                onClick={() => handleSubmitAnswer()}
+                disabled={isLocked}
+              >
+                <span>Submit</span>
+                <span aria-hidden="true">↵</span>
+              </button>
+              {settings.enableHints && (
                 <button
-                  onClick={handleAdvanceToNext}
                   type="button"
-                  className="px-4 py-2 text-xs font-bold rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] self-end sm:self-auto shrink-0 flex items-center gap-1.5"
+                  onClick={() => {
+                    if (!showHintText) {
+                      setShowHintText(true);
+                      setUsedHintThisQuestion(true);
+                      setHintsUsedTotal(prev => prev + 1);
+                    }
+                  }}
+                  disabled={isLocked}
                 >
-                  <span>Next Question</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  Hint
                 </button>
               )}
+              <button type="button" onClick={handleSkip} disabled={isLocked}>
+                Skip
+              </button>
             </div>
-          )}
+
+            {/* Hint Box */}
+            {showHintText && !isLocked && (
+              <div className="hint" role="note">
+                <span className="micro muted">Hint</span>
+                <br />
+                {currentQuestion.hint}
+              </div>
+            )}
+
+            {/* Immediate Feedback Box */}
+            {isLocked && currentResult && (
+              <div
+                className={`fb ${
+                  currentResult.feedbackMessage === 'Question skipped.'
+                    ? 'skip'
+                    : currentResult.isCorrect
+                    ? 'ok'
+                    : 'no'
+                }`}
+                id="fbbox"
+              >
+                <div className="st">
+                  <span className="ic" aria-hidden="true">
+                    {currentResult.feedbackMessage === 'Question skipped.'
+                      ? '–'
+                      : currentResult.isCorrect
+                      ? '✓'
+                      : '✕'}
+                  </span>
+                  {currentResult.feedbackMessage === 'Question skipped.'
+                    ? 'skipped.'
+                    : currentResult.isCorrect
+                    ? 'correct.'
+                    : 'not quite.'}
+                </div>
+
+                <dl className="micro">
+                  <dt className="muted">Expected</dt>
+                  <dd style={{ textTransform: 'none', letterSpacing: '0', fontSize: '1.05rem' }}>
+                    {currentQuestion.correctAnswer}
+                  </dd>
+                  <dt className="muted">You answered</dt>
+                  <dd style={{ textTransform: 'none', letterSpacing: '0', fontSize: '1.05rem' }}>
+                    {(settings.answerMode === 'multiple_choice' ? selectedMCOption : typedAnswer) || '—'}
+                  </dd>
+                  <dt className="muted">Notes</dt>
+                  <dd style={{ textTransform: 'none', letterSpacing: '0', fontSize: '1.05rem' }}>
+                    {currentQuestion.targetChord.notes.map(n => n.spelling).join(' · ')}
+                  </dd>
+                </dl>
+
+                <p>
+                  {currentResult.feedbackMessage && `${currentResult.feedbackMessage} `}
+                  {currentQuestion.compactExplanation}
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Bottom Transport Bar */}
+        <div className="bar" style={{ gridTemplateColumns: '1fr 2fr' }}>
+          <button
+            type="button"
+            className="b pa"
+            onClick={handleFinishQuiz}
+            style={{ borderRight: '1px solid var(--ink)' }}
+          >
+            <span>End quiz</span>
+            <span aria-hidden="true">✕</span>
+          </button>
+          <button
+            type="button"
+            className="b next"
+            onClick={handleAdvanceToNext}
+            disabled={!isLocked}
+          >
+            <span>{currentIndex >= questions.length - 1 ? 'finish' : 'next'}</span>
+            <span className="ar" aria-hidden="true">
+              →
+            </span>
+          </button>
         </div>
       </div>
     );
   }
 
-  // ---------------- RESULTS VIEW ----------------
-  const total = summaryItems.length;
-  const correctCount = summaryItems.filter(s => s.isCorrect).length;
-  const unhintedCorrect = summaryItems.filter(s => s.isCorrect && !s.usedHint).length;
-  const hintedCount = summaryItems.filter(s => s.isCorrect && s.usedHint).length;
-  const wrongCount = summaryItems.filter(s => !s.isCorrect && !s.isSkipped && !s.isTimeout).length;
-  const skippedCount = summaryItems.filter(s => s.isSkipped).length;
-  const timeoutCount = summaryItems.filter(s => s.isTimeout).length;
-  const accuracy = total > 0 ? Math.round((correctCount / total) * 100) : 0;
-  const recall = total > 0 ? Math.round((unhintedCorrect / total) * 100) : 0;
+  // 2. COMPLETED RESULTS VIEW
+  if (quizState === 'completed') {
+    const correctCount = summaryItems.filter(s => s.isCorrect).length;
+    const skippedCount = summaryItems.filter(s => s.isSkipped).length;
+    const hintedCount = summaryItems.filter(s => s.usedHint).length;
+    const pct = summaryItems.length > 0 ? Math.round((correctCount / summaryItems.length) * 100) : 0;
+    const totalTime = sessionStartRef.current ? Date.now() - sessionStartRef.current : 0;
 
-  const filteredItems = summaryItems.filter(item => {
-    if (resultsFilter === 'correct') return item.isCorrect;
-    if (resultsFilter === 'wrong') return !item.isCorrect;
-    if (resultsFilter === 'hinted') return item.usedHint;
-    return true;
-  });
+    // Weak concepts calculation
+    const weakDegreesMap: { [deg: number]: number } = {};
+    summaryItems
+      .filter(s => !s.isCorrect)
+      .forEach(s => {
+        weakDegreesMap[s.question.targetDegree] = (weakDegreesMap[s.question.targetDegree] || 0) + 1;
+      });
+    const weakList = Object.keys(weakDegreesMap)
+      .map(Number)
+      .sort((a, b) => weakDegreesMap[b] - weakDegreesMap[a])
+      .slice(0, 3)
+      .map(d => ROMAN_NUMERALS[d - 1])
+      .join(' ');
+
+    const toggleSelectPractice = (idx: number) => {
+      setSelectedQuestionsForPractice(prev => {
+        const next = new Set(prev);
+        if (next.has(idx)) next.delete(idx);
+        else next.add(idx);
+        return next;
+      });
+    };
+
+    return (
+      <div className="view">
+        <div className="res">
+          <div className="num">
+            <div className="micro muted">Session complete / No-instrument quiz</div>
+            <div className="display" aria-label={`${pct} percent`}>
+              {pct}
+              <small>%</small>
+            </div>
+          </div>
+
+          <div className="mx">
+            <div className="mrow micro">
+              <span>Accuracy</span>
+              <b>
+                {correctCount} / {summaryItems.length}
+              </b>
+            </div>
+            <div className="mrow micro">
+              <span>Time</span>
+              <b className="tnum">{fmtT(totalTime)}</b>
+            </div>
+            <div className="mrow micro">
+              <span>Hints used</span>
+              <b>{hintedCount}</b>
+            </div>
+            <div className="mrow micro">
+              <span>Skipped</span>
+              <b>{skippedCount}</b>
+            </div>
+            <div className="mrow micro">
+              <span>Weak concepts</span>
+              <b>{weakList || 'None'}</b>
+            </div>
+          </div>
+
+          <div className="ctas">
+            <button type="button" className="btn acc-bg big" onClick={handleRetryEntireQuiz}>
+              <span>Retry</span>
+              <span>↗</span>
+            </button>
+            <button type="button" className="btn big" onClick={() => setQuizState('config')}>
+              <span>Return to settings</span>
+              <span>←</span>
+            </button>
+            {correctCount < summaryItems.length ? (
+              <button type="button" className="btn ghost big" onClick={handleRetryIncorrect}>
+                <span>Retry incorrect</span>
+                <span>↺</span>
+              </button>
+            ) : (
+              <span></span>
+            )}
+          </div>
+
+          {/* Review Table */}
+          <div className="review">
+            <div className="flex items-baseline justify-between mb-4 flex-wrap gap-4">
+              <h2 className="display">review.</h2>
+              {selectedQuestionsForPractice.size > 0 && (
+                <button
+                  type="button"
+                  onClick={handlePracticeSelected}
+                  className="btn !min-h-[44px] !px-4 !text-xs !bg-[var(--ink)] !text-white"
+                >
+                  Practice {selectedQuestionsForPractice.size} Selected →
+                </button>
+              )}
+            </div>
+
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Status</th>
+                  <th>Question</th>
+                  <th>Your answer</th>
+                  <th>Correct</th>
+                  <th>Select</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summaryItems.map((item, i) => {
+                  const isD2C = item.question.direction === 'degree_to_chord';
+                  const qLabel = isD2C
+                    ? `Degree ${item.question.targetDegree} in ${item.question.keyTonic} ${formatScaleName(item.question.scaleType).toLowerCase()}`
+                    : `${item.question.targetChord.name} in ${item.question.keyTonic} ${formatScaleName(item.question.scaleType).toLowerCase()}`;
+                  const isChecked = selectedQuestionsForPractice.has(i);
+
+                  return (
+                    <tr key={i}>
+                      <td className="st">{pad2(i + 1)}</td>
+                      <td>
+                        <span className={`tag ${item.isSkipped ? 'sk' : item.isCorrect ? 'ok' : 'no'}`}>
+                          {item.isSkipped ? '– Skipped' : item.isCorrect ? '✓ Correct' : '✕ Wrong'}
+                        </span>
+                      </td>
+                      <td className="font-semibold">{qLabel}</td>
+                      <td>{item.userAnswer}</td>
+                      <td className="font-bold">{item.question.correctAnswer}</td>
+                      <td>
+                        <button
+                          type="button"
+                          onClick={() => toggleSelectPractice(i)}
+                          className="tag"
+                          style={{
+                            borderColor: isChecked ? 'var(--accent)' : 'var(--line)',
+                            color: isChecked ? 'var(--accent)' : 'inherit',
+                          }}
+                        >
+                          {isChecked ? '■ Picked' : '□ Pick'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 3. CONFIGURATION / SETTINGS VIEW
+  const selectedKeysCount = settings.enabledPitchClasses.length;
+  const keySummaryText =
+    selectedKeysCount === 12
+      ? 'All 12 keys'
+      : selectedKeysCount === 1
+      ? `${TONICS_BY_PITCH_CLASS[settings.enabledPitchClasses[0]]?.[0] || 'C'} key`
+      : `${selectedKeysCount} keys selected`;
+
+  const summaryRows = [
+    ['Keys', keySummaryText],
+    ['Scale', settings.enabledScales.map(formatScaleName).join(', ')],
+    [
+      'Chord set',
+      settings.chordType === 'triads'
+        ? 'Triads'
+        : settings.chordType === 'sevenths'
+        ? 'Sevenths'
+        : 'Triads + sevenths',
+    ],
+    [
+      'Questions',
+      `${settings.questionCountLimit} · ${settings.answerMode === 'typed' ? 'typed' : 'choice'}`,
+    ],
+  ];
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-200">
-      <div className="text-center space-y-2 border-b border-[#29251F]/15 dark:border-[#EDE8E1]/15 pb-6">
-        <span className="text-xs uppercase font-bold tracking-widest text-[#A68A55] dark:text-[#CBB07E]">
-          Quiz Session Complete
-        </span>
-        <h1 className="font-editorial text-4xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-          Results & Performance
-        </h1>
-        <p className="text-xs sm:text-sm text-[#29251F]/70 dark:text-[#EDE8E1]/70">
-          Diatonic identification summary. Weak concepts have been recorded for spaced review.
-        </p>
-      </div>
-
-      {/* Main Score Metrics */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
-          <span className="text-[10px] font-bold uppercase text-[#29251F]/60 dark:text-[#EDE8E1]/60 block mb-1">
-            Overall Accuracy
-          </span>
-          <span className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-            {accuracy}%
-          </span>
-          <span className="text-[10px] text-[#29251F]/50 block mt-1">
-            {correctCount} / {total} Total
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
-          <span className="text-[10px] font-bold uppercase text-[#A68A55] dark:text-[#CBB07E] block mb-1">
-            Independent Recall
-          </span>
-          <span className="font-editorial text-3xl font-bold text-[#A68A55] dark:text-[#CBB07E]">
-            {recall}%
-          </span>
-          <span className="text-[10px] text-[#29251F]/50 block mt-1">
-            {unhintedCorrect} Unhinted
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
-          <span className="text-[10px] font-bold uppercase text-[#B85D19] dark:text-[#D47732] block mb-1">
-            Incorrect / Missed
-          </span>
-          <span className="font-editorial text-3xl font-bold text-[#B85D19] dark:text-[#D47732]">
-            {wrongCount}
-          </span>
-          <span className="text-[10px] text-[#29251F]/50 block mt-1">
-            {skippedCount} Skipped • {timeoutCount} Timeout
-          </span>
-        </div>
-
-        <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
-          <span className="text-[10px] font-bold uppercase text-[#29251F]/60 dark:text-[#EDE8E1]/60 block mb-1">
-            Hint Assisted
-          </span>
-          <span className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
-            {hintedCount}
-          </span>
-          <span className="text-[10px] text-[#29251F]/50 block mt-1">
-            Counts toward accuracy
-          </span>
-        </div>
-      </div>
-
-      {/* Review & Practice Selected Controls */}
-      <div className="space-y-4">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-1.5">
-            <Filter className="w-3.5 h-3.5 text-[#A68A55]" />
-            <span className="text-xs font-bold text-[#29251F] dark:text-[#EDE8E1]">Filter Questions:</span>
-            {(['all', 'correct', 'wrong', 'hinted'] as const).map(f => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setResultsFilter(f)}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-md border ${
-                  resultsFilter === f
-                    ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
-                    : 'border-[#29251F]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
-                }`}
-              >
-                {f.charAt(0).toUpperCase() + f.slice(1)}
-              </button>
+    <div className="view">
+      <div className="cfg">
+        {/* Left Sticky Header Column */}
+        <aside className="cfg-head">
+          <div className="micro muted">Mode B / No-instrument quiz</div>
+          <h1 className="display">configure.</h1>
+          <div className="cfg-sum micro">
+            {summaryRows.map(([label, val]) => (
+              <div key={label}>
+                <span className="muted">{label}</span>
+                <b>{val}</b>
+              </div>
             ))}
           </div>
-
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                // Select all wrong questions
-                const wrongIndices = new Set(
-                  summaryItems.map((item, idx) => (!item.isCorrect ? idx : -1)).filter(idx => idx !== -1)
-                );
-                setSelectedQuestionsForPractice(wrongIndices);
-              }}
-              type="button"
-              className="text-xs font-bold text-[#A68A55] hover:underline"
-            >
-              Select All Mistakes
-            </button>
-            <button
-              onClick={handlePracticeSelected}
-              type="button"
-              disabled={selectedQuestionsForPractice.size === 0}
-              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-[#A68A55] text-white hover:bg-[#8e7443] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              Practice Selected ({selectedQuestionsForPractice.size})
-            </button>
+          <div className="warn micro" role="alert" id="warn">
+            {validationMessage}
           </div>
-        </div>
+          <button
+            type="button"
+            className="start"
+            onClick={handleStartQuiz}
+            disabled={!!validationMessage || settings.enabledPitchClasses.length === 0}
+          >
+            <span className="micro">Quiz · {keySummaryText}</span>
+            <span className="big">
+              start<br />session ↗
+            </span>
+          </button>
+        </aside>
 
-        {/* Question Review List */}
-        <div className="space-y-2">
-          {filteredItems.map((item, idx) => {
-            const isSelected = selectedQuestionsForPractice.has(idx);
-            return (
-              <div
-                key={idx}
-                className={`p-3.5 rounded-xl border transition-all ${
-                  item.isCorrect
-                    ? 'bg-[#2D7A4D]/5 border-[#2D7A4D]/20'
-                    : 'bg-red-500/5 border-red-500/20'
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex items-start gap-2.5">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedQuestionsForPractice(prev => {
-                          const next = new Set(prev);
-                          if (next.has(idx)) next.delete(idx);
-                          else next.add(idx);
-                          return next;
-                        });
-                      }}
-                      className="mt-0.5 text-[#29251F]/40 dark:text-[#EDE8E1]/40 hover:text-[#A68A55]"
-                      aria-label="Select question for practice"
-                    >
-                      {isSelected ? <CheckSquare className="w-4 h-4 text-[#A68A55]" /> : <Square className="w-4 h-4" />}
-                    </button>
-                    <div>
-                      <div className="text-xs font-bold text-[#29251F] dark:text-[#EDE8E1]">
-                        {item.question.prompt.primaryText} ({item.question.prompt.subText})
-                      </div>
-                      <div className="text-xs text-[#29251F]/70 dark:text-[#EDE8E1]/70 mt-1">
-                        Given: <strong className={item.isCorrect ? 'text-[#2D7A4D]' : 'text-red-500'}>{item.userAnswer}</strong> • Correct: <strong>{item.question.correctAnswerText}</strong>
-                        {item.usedHint && <span className="ml-2 text-[10px] text-[#A68A55] font-semibold">(Hint Used)</span>}
-                      </div>
-                      <p className="text-[11px] text-[#29251F]/60 dark:text-[#EDE8E1]/60 mt-1 leading-relaxed">
-                        {item.explanation}
-                      </p>
+        {/* Right Body with Accordion Groups */}
+        <div className="cfg-body">
+          {/* Group 01: Musical Material */}
+          <section className="grp">
+            <button
+              type="button"
+              className="grp-h"
+              onClick={() => toggleGroup(1)}
+              aria-expanded={openGroups[1]}
+            >
+              <span className="micro">01</span>
+              <span className="t">Musical material</span>
+              <span className="micro muted v">
+                {keySummaryText} · {settings.chordType}
+              </span>
+              <span className="pm" aria-hidden="true">
+                {openGroups[1] ? '−' : '+'}
+              </span>
+            </button>
+            {openGroups[1] && (
+              <div className="grp-c">
+                {/* Key Selection matrix */}
+                <div className="setting">
+                  <div className="lab micro">
+                    Key selection
+                    <small>Choose 1, multiple, or all 12 keys.</small>
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={handleSelectAllKeys}
+                        className="micro font-bold underline"
+                      >
+                        Select All
+                      </button>
+                      <span className="micro muted">·</span>
+                      <button
+                        type="button"
+                        onClick={handleClearAllKeys}
+                        className="micro font-bold underline"
+                      >
+                        Clear All
+                      </button>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="keys" role="group" aria-label="Key selection">
+                      {KEY_DISPLAY_LIST.map(k => {
+                        const isSelected = settings.enabledPitchClasses.includes(k.pitchClass);
+                        return (
+                          <button
+                            key={k.pitchClass}
+                            type="button"
+                            aria-pressed={isSelected}
+                            onClick={() => handleToggleKey(k.pitchClass)}
+                            aria-label={`Key ${k.label}`}
+                          >
+                            {k.label}
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
+
+                {/* Scale selection */}
+                <div className="setting">
+                  <div className="lab micro">Scale</div>
+                  <div className="seg" role="group">
+                    {(['major', 'minor', 'harmonic_minor'] as ScaleType[]).map(scale => {
+                      const isSel = settings.enabledScales.includes(scale);
+                      return (
+                        <button
+                          key={scale}
+                          type="button"
+                          aria-pressed={isSel}
+                          onClick={() => {
+                            setSettings(prev => {
+                              const exists = prev.enabledScales.includes(scale);
+                              if (exists && prev.enabledScales.length === 1) return prev;
+                              const updated = exists
+                                ? prev.enabledScales.filter(s => s !== scale)
+                                : [...prev.enabledScales, scale];
+                              return { ...prev, enabledScales: updated };
+                            });
+                          }}
+                        >
+                          {formatScaleName(scale)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Chord set */}
+                <div className="setting">
+                  <div className="lab micro">Chord set</div>
+                  <div className="seg" role="group">
+                    {(['triads', 'sevenths', 'both'] as ChordTypeFilter[]).map(type => (
+                      <button
+                        key={type}
+                        type="button"
+                        aria-pressed={settings.chordType === type}
+                        onClick={() => setSettings(prev => ({ ...prev, chordType: type }))}
+                      >
+                        {type === 'triads' ? 'Triads' : type === 'sevenths' ? 'Sevenths' : 'Both'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Scale degrees */}
+                <div className="setting">
+                  <div className="lab micro">
+                    Degrees
+                    <small>Toggle which scale degrees are queried.</small>
+                  </div>
+                  <div className="degs" role="group" aria-label="Scale degrees">
+                    {[1, 2, 3, 4, 5, 6, 7].map(deg => {
+                      const on = settings.enabledDegrees.includes(deg);
+                      const tonicName = TONICS_BY_PITCH_CLASS[settings.enabledPitchClasses[0] || 0]?.[0] || 'C';
+                      const scale = settings.enabledScales[0] || 'major';
+                      const sampleChord = buildDiatonicChord(
+                        tonicName,
+                        scale,
+                        deg,
+                        settings.chordType === 'sevenths' ? 'seventh' : 'triad'
+                      );
+                      return (
+                        <button
+                          key={deg}
+                          type="button"
+                          aria-pressed={on}
+                          onClick={() => {
+                            setSettings(prev => {
+                              const exists = prev.enabledDegrees.includes(deg);
+                              const updated = exists
+                                ? prev.enabledDegrees.filter(d => d !== deg)
+                                : [...prev.enabledDegrees, deg].sort();
+                              return { ...prev, enabledDegrees: updated };
+                            });
+                          }}
+                        >
+                          <span className="r">{sampleChord.romanNumeral}</span>
+                          <span className="c">{sampleChord.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-            );
-          })}
+            )}
+          </section>
+
+          {/* Group 02: Session Flow */}
+          <section className="grp">
+            <button
+              type="button"
+              className="grp-h"
+              onClick={() => toggleGroup(2)}
+              aria-expanded={openGroups[2]}
+            >
+              <span className="micro">02</span>
+              <span className="t">Session flow</span>
+              <span className="micro muted v">
+                {settings.answerMode === 'typed' ? 'Typed' : 'Choice'} · {settings.questionCountLimit} Q
+              </span>
+              <span className="pm" aria-hidden="true">
+                {openGroups[2] ? '−' : '+'}
+              </span>
+            </button>
+            {openGroups[2] && (
+              <div className="grp-c">
+                <div className="setting">
+                  <div className="lab micro">Direction</div>
+                  <div className="seg" role="group">
+                    <button
+                      type="button"
+                      aria-pressed={settings.direction === 'mixed'}
+                      onClick={() => setSettings(prev => ({ ...prev, direction: 'mixed' }))}
+                    >
+                      Both
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={settings.direction === 'degree_to_chord'}
+                      onClick={() => setSettings(prev => ({ ...prev, direction: 'degree_to_chord' }))}
+                    >
+                      Degree → chord
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={settings.direction === 'chord_to_degree'}
+                      onClick={() => setSettings(prev => ({ ...prev, direction: 'chord_to_degree' }))}
+                    >
+                      Chord → degree
+                    </button>
+                  </div>
+                </div>
+
+                <div className="setting">
+                  <div className="lab micro">Answer mode</div>
+                  <div className="seg" role="group">
+                    <button
+                      type="button"
+                      aria-pressed={settings.answerMode === 'typed'}
+                      onClick={() => setSettings(prev => ({ ...prev, answerMode: 'typed' }))}
+                    >
+                      Typed
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={settings.answerMode === 'multiple_choice'}
+                      onClick={() => setSettings(prev => ({ ...prev, answerMode: 'multiple_choice' }))}
+                    >
+                      Multiple choice
+                    </button>
+                  </div>
+                </div>
+
+                <div className="setting">
+                  <div className="lab micro">Questions</div>
+                  <div className="stepper">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSettings(prev => ({
+                          ...prev,
+                          questionCountLimit: Math.max(5, prev.questionCountLimit - 5),
+                        }))
+                      }
+                      aria-label="Decrease question count"
+                    >
+                      −
+                    </button>
+                    <span className="val">{settings.questionCountLimit}</span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setSettings(prev => ({
+                          ...prev,
+                          questionCountLimit: Math.min(50, prev.questionCountLimit + 5),
+                        }))
+                      }
+                      aria-label="Increase question count"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Group 03: Display */}
+          <section className="grp">
+            <button
+              type="button"
+              className="grp-h"
+              onClick={() => toggleGroup(3)}
+              aria-expanded={openGroups[3]}
+            >
+              <span className="micro">03</span>
+              <span className="t">Display</span>
+              <span className="micro muted v">
+                {settings.enableHints ? 'Hints allowed' : 'Hints off'} · Key{' '}
+                {settings.showKey !== false ? 'shown' : 'hidden'}
+              </span>
+              <span className="pm" aria-hidden="true">
+                {openGroups[3] ? '−' : '+'}
+              </span>
+            </button>
+            {openGroups[3] && (
+              <div className="grp-c">
+                <div className="setting">
+                  <div className="lab micro">Hints</div>
+                  <div className="seg" role="group">
+                    <button
+                      type="button"
+                      aria-pressed={settings.enableHints}
+                      onClick={() => setSettings(prev => ({ ...prev, enableHints: true }))}
+                    >
+                      Allowed
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={!settings.enableHints}
+                      onClick={() => setSettings(prev => ({ ...prev, enableHints: false }))}
+                    >
+                      Off
+                    </button>
+                  </div>
+                </div>
+
+                <div className="setting">
+                  <div className="lab micro">Show key in quiz</div>
+                  <div className="seg" role="group">
+                    <button
+                      type="button"
+                      aria-pressed={settings.showKey !== false}
+                      onClick={() => setSettings(prev => ({ ...prev, showKey: true }))}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      aria-pressed={settings.showKey === false}
+                      onClick={() => setSettings(prev => ({ ...prev, showKey: false }))}
+                    >
+                      No
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Group 04: Presets */}
+          <section className="grp">
+            <button
+              type="button"
+              className="grp-h"
+              onClick={() => toggleGroup(4)}
+              aria-expanded={openGroups[4]}
+            >
+              <span className="micro">04</span>
+              <span className="t">Presets</span>
+              <span className="micro muted v">
+                {presets.filter(p => p.mode === 'quiz').length} saved
+              </span>
+              <span className="pm" aria-hidden="true">
+                {openGroups[4] ? '−' : '+'}
+              </span>
+            </button>
+            {openGroups[4] && (
+              <div className="grp-c">
+                <div className="space-y-4">
+                  {presets
+                    .filter(p => p.mode === 'quiz')
+                    .map(p => (
+                      <div
+                        key={p.id}
+                        className="flex items-center justify-between py-2 border-b border-[var(--line)]"
+                      >
+                        <div>
+                          <b className="text-sm">{p.name}</b>
+                          <div className="micro muted">
+                            {p.settings.answerMode} · {p.settings.chordType}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSettings(prev => ({ ...prev, ...p.settings }));
+                            }}
+                            className="btn !min-h-[38px] !px-3 !text-xs"
+                          >
+                            Load
+                          </button>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await deletePreset(p.id);
+                              onRefreshPresets();
+                            }}
+                            className="btn ghost !min-h-[38px] !px-3 !text-xs"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+
+                  {showPresetSave ? (
+                    <div className="pt-2 flex items-center gap-2">
+                      <input
+                        type="text"
+                        placeholder="Preset Name"
+                        value={presetNameInput}
+                        onChange={e => setPresetNameInput(e.target.value)}
+                        className="border border-[var(--ink)] bg-[var(--paper)] px-3 py-2 text-sm flex-1 font-bold"
+                      />
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (!presetNameInput.trim()) return;
+                          await savePreset({
+                            id: `preset_quiz_${Date.now()}`,
+                            mode: 'quiz',
+                            name: presetNameInput.trim(),
+                            createdAt: Date.now(),
+                            settings: { ...settings },
+                          });
+                          setPresetNameInput('');
+                          setShowPresetSave(false);
+                          onRefreshPresets();
+                        }}
+                        className="btn !min-h-[40px] !px-4 !text-xs"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowPresetSave(false)}
+                        className="btn ghost !min-h-[40px] !px-3 !text-xs"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setShowPresetSave(true)}
+                      className="btn ghost !min-h-[44px] !px-4 !text-xs mt-2"
+                    >
+                      + Save Current as Preset
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+          </section>
         </div>
-      </div>
-
-      <div className="pt-6 border-t border-[#29251F]/15 dark:border-[#EDE8E1]/15 flex flex-wrap items-center justify-center gap-3">
-        <button
-          onClick={handleRetryEntireQuiz}
-          type="button"
-          className="px-5 py-2.5 text-xs font-bold rounded-lg bg-[#A68A55] text-white hover:bg-[#8e7443] flex items-center gap-1.5 shadow-xs transition-colors"
-        >
-          <RotateCcw className="w-3.5 h-3.5" />
-          <span>Retry Entire Quiz</span>
-        </button>
-
-        {wrongCount > 0 && (
-          <button
-            onClick={handleRetryIncorrect}
-            type="button"
-            className="px-5 py-2.5 text-xs font-bold rounded-lg bg-[#B85D19] dark:bg-[#D47732] text-white hover:opacity-90 flex items-center gap-1.5 shadow-xs transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Retry Incorrect ({wrongCount})</span>
-          </button>
-        )}
-
-        <button
-          onClick={() => setQuizState('setup')}
-          type="button"
-          className="px-5 py-2.5 text-xs font-bold rounded-lg border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] transition-colors"
-        >
-          <span>Change Settings / Setup</span>
-        </button>
       </div>
     </div>
   );

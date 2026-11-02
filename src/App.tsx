@@ -1,12 +1,12 @@
 /**
- * Main Application Component: Minimal Editorial Diatonic Chord Training Suite
+ * Main Application Component: Stark Editorial Diatonic Chord Training Suite
+ * Rebuilt to faithfully match chord-prototype.html
  * Assembles Home, Instrument Trainer, Quiz, Collections, Bookmarks,
  * Progress, History, and Backup into a cohesive offline-first PWA.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
 import { Header, NavTab } from './ui/Header';
-import { MobileNav } from './ui/MobileNav';
 import { HomeView } from './ui/HomeView';
 import { InstrumentTrainerView, InstrumentTrainerSettings } from './ui/InstrumentTrainerView';
 import { QuizView, QuizSettings } from './ui/QuizView';
@@ -45,7 +45,32 @@ import { DiatonicChord } from './theory/musicEngine';
 import { QuizQuestion, createQuizQuestion } from './engine/quizEngine';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<NavTab>('home');
+  const [activeTab, setActiveTabState] = useState<NavTab>(() => {
+    const hash = window.location.hash.replace('#', '') as NavTab;
+    const validTabs: NavTab[] = ['home', 'trainer', 'quiz', 'collections', 'bookmarks', 'progress', 'history', 'backup'];
+    return validTabs.includes(hash) ? hash : 'home';
+  });
+
+  const setActiveTab = (tab: NavTab) => {
+    setActiveTabState(tab);
+    try {
+      window.location.hash = `#${tab}`;
+    } catch {}
+    window.scrollTo(0, 0);
+  };
+
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '') as NavTab;
+      const validTabs: NavTab[] = ['home', 'trainer', 'quiz', 'collections', 'bookmarks', 'progress', 'history', 'backup'];
+      if (validTabs.includes(hash)) {
+        setActiveTabState(hash);
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
   const [sessions, setSessions] = useState<CompletedSessionRecord[]>([]);
   const [attempts, setAttempts] = useState<QuizAttemptRecord[]>([]);
   const [manualEvents, setManualEvents] = useState<ManualLearningEvent[]>([]);
@@ -67,7 +92,6 @@ export const App: React.FC = () => {
 
   // Backup modal toggle
   const [showBackupModal, setShowBackupModal] = useState(false);
-  const [showMobileMore, setShowMobileMore] = useState(false);
 
   // Load all user data from IndexedDB
   const refreshAllData = useCallback(async () => {
@@ -117,7 +141,6 @@ export const App: React.FC = () => {
     } else if (preferences.theme === 'light') {
       root.classList.remove('dark');
     } else {
-      // system
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       root.classList.toggle('dark', prefersDark);
     }
@@ -130,11 +153,6 @@ export const App: React.FC = () => {
 
   // Reconstruct concept mastery map deterministically
   const conceptStates: Map<string, ConceptMasteryState> = reconstructMasteryStates(attempts, manualEvents);
-
-  let dueCount = 0;
-  for (const c of conceptStates.values()) {
-    if (c.status === 'mastered' && c.isDue) dueCount += 1;
-  }
 
   // Handle Session Completion
   const handleSessionComplete = async () => {
@@ -184,7 +202,6 @@ export const App: React.FC = () => {
     });
 
     for (const c of pool) {
-      // Parse concept ID e.g. "major_deg2_triad_degree_to_chord"
       const parts = c.conceptId.split('_');
       const scale = parts[0] as any;
       const degMatch = c.conceptId.match(/deg(\d)/);
@@ -222,8 +239,12 @@ export const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#F8F6F1] dark:bg-[#181614] text-[#29251F] dark:text-[#EDE8E1] transition-colors pb-16 md:pb-6">
-      {/* Top Header */}
+    <div className="min-h-screen flex flex-col bg-[var(--canvas)] text-[var(--ink)]">
+      <a className="skip" href="#main">
+        Skip to content
+      </a>
+
+      {/* Top Editorial Header */}
       <Header
         activeTab={activeTab}
         onSelectTab={tab => {
@@ -238,7 +259,7 @@ export const App: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1" role="main">
+      <main id="main" tabIndex={-1} className="flex-1 w-full" role="main">
         {activeTab === 'home' && (
           <HomeView
             onSelectTab={setActiveTab}
@@ -309,55 +330,6 @@ export const App: React.FC = () => {
           />
         )}
       </main>
-
-      {/* Mobile Bottom Navigation */}
-      <MobileNav
-        activeTab={activeTab}
-        onSelectTab={tab => {
-          setActiveTab(tab);
-          setShowMobileMore(false);
-        }}
-        onOpenMoreMenu={() => setShowMobileMore(prev => !prev)}
-        dueCount={dueCount}
-      />
-
-      {/* Mobile "More" Drawer Menu */}
-      {showMobileMore && (
-        <div className="md:hidden fixed inset-0 z-50 flex flex-col justify-end bg-black/60 backdrop-blur-xs p-4">
-          <div className="rounded-2xl bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/20 dark:border-[#EDE8E1]/20 p-5 space-y-3 shadow-2xl animate-in slide-in-from-bottom duration-200">
-            <div className="flex items-center justify-between pb-2 border-b border-[#29251F]/10 dark:border-[#EDE8E1]/10">
-              <span className="font-editorial font-bold text-sm text-[#29251F] dark:text-[#EDE8E1]">More Features</span>
-              <button onClick={() => setShowMobileMore(false)} className="text-xs font-bold text-[#A68A55]">Done</button>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs font-semibold">
-              <button
-                onClick={() => { setActiveTab('collections'); setShowMobileMore(false); }}
-                className="p-3 rounded-lg bg-[#EAE5DC]/40 dark:bg-[#221F1C]/40 text-left border border-[#29251F]/10"
-              >
-                Custom Collections
-              </button>
-              <button
-                onClick={() => { setActiveTab('bookmarks'); setShowMobileMore(false); }}
-                className="p-3 rounded-lg bg-[#EAE5DC]/40 dark:bg-[#221F1C]/40 text-left border border-[#29251F]/10"
-              >
-                Difficult Bookmarks
-              </button>
-              <button
-                onClick={() => { setActiveTab('history'); setShowMobileMore(false); }}
-                className="p-3 rounded-lg bg-[#EAE5DC]/40 dark:bg-[#221F1C]/40 text-left border border-[#29251F]/10"
-              >
-                Session History
-              </button>
-              <button
-                onClick={() => { setShowBackupModal(true); setShowMobileMore(false); }}
-                className="p-3 rounded-lg bg-[#A68A55]/15 text-[#A68A55] text-left border border-[#A68A55]/30"
-              >
-                Backup & Restore
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Full Backup Modal */}
       {showBackupModal && (

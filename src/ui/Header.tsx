@@ -1,21 +1,10 @@
 /**
- * Minimal Editorial Header with Brand Mark, Navigation Links,
- * PWA Install Button, and Theme Switcher.
+ * Editorial Top Navigation Bar & Mobile Sheet Drawer
+ * Matches chord-prototype.html: ♯1 mark, clean typography links,
+ * vivid #FF4B30 active dot indicators, and fullscreen sheet menu.
  */
 
-import React from 'react';
-import {
-  Music,
-  BookOpen,
-  HelpCircle,
-  FolderHeart,
-  Bookmark,
-  BarChart3,
-  History,
-  Sun,
-  Moon,
-  Laptop,
-} from 'lucide-react';
+import React, { useState, useEffect } from 'react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { UserPreferences } from '../storage/indexedDb';
 
@@ -42,102 +31,186 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTab,
   preferences,
   onUpdatePreferences,
-  isSessionActive = false,
 }) => {
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  // Close menu on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && menuOpen) {
+        setMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [menuOpen]);
+
   const toggleTheme = () => {
     const nextTheme: UserPreferences['theme'] =
       preferences.theme === 'light' ? 'dark' : preferences.theme === 'dark' ? 'system' : 'light';
     onUpdatePreferences({ ...preferences, theme: nextTheme });
   };
 
-  const navItems: Array<{ id: NavTab; label: string; icon: React.ReactNode }> = [
-    { id: 'home', label: 'Journal', icon: <BookOpen className="w-4 h-4" /> },
-    { id: 'trainer', label: 'Instrument Trainer', icon: <Music className="w-4 h-4" /> },
-    { id: 'quiz', label: 'Chord Quiz', icon: <HelpCircle className="w-4 h-4" /> },
-    { id: 'collections', label: 'Collections', icon: <FolderHeart className="w-4 h-4" /> },
-    { id: 'bookmarks', label: 'Bookmarks', icon: <Bookmark className="w-4 h-4" /> },
-    { id: 'progress', label: 'Mastery', icon: <BarChart3 className="w-4 h-4" /> },
-    { id: 'history', label: 'History', icon: <History className="w-4 h-4" /> },
+  const handleNav = (tab: NavTab) => {
+    onSelectTab(tab);
+    setMenuOpen(false);
+  };
+
+  const navItems: Array<{ id: NavTab; label: string; num: string }> = [
+    { id: 'home', label: 'Home', num: '00' },
+    { id: 'trainer', label: 'Train', num: '01' },
+    { id: 'quiz', label: 'Quiz', num: '02' },
+    { id: 'collections', label: 'Collections', num: '03' },
+    { id: 'bookmarks', label: 'Bookmarks', num: '04' },
+    { id: 'progress', label: 'Progress', num: '05' },
+    { id: 'history', label: 'History', num: '06' },
+    { id: 'backup', label: 'Backup', num: '07' },
   ];
 
   return (
-    <header className="sticky top-0 z-40 bg-[#F8F6F1]/90 dark:bg-[#181614]/90 backdrop-blur-md border-b border-[#29251F]/10 dark:border-[#EDE8E1]/10 px-4 lg:px-8 py-3 transition-colors">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-        {/* Brand Wordmark */}
-        <button
-          type="button"
-          onClick={() => onSelectTab('home')}
-          className="flex items-center gap-2.5 text-left group focus-visible:outline-hidden"
-        >
-          <div className="w-8 h-8 rounded-md bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] flex items-center justify-center font-editorial font-bold text-lg border border-[#A68A55]/40 shadow-xs">
-            I
-          </div>
-          <div>
-            <span className="font-editorial font-bold text-base tracking-tight text-[#29251F] dark:text-[#EDE8E1] block leading-none">
-              Diatonic Chord Practice
-            </span>
-            <span className="text-[10px] tracking-widest uppercase font-semibold text-[#A68A55] dark:text-[#CBB07E]">
-              Minimal Editorial Edition
-            </span>
-          </div>
-        </button>
-
-        {/* Desktop Navigation Links */}
-        <nav className="hidden md:flex items-center gap-1 bg-[#EAE5DC]/50 dark:bg-[#221F1C]/60 p-1 rounded-lg border border-[#29251F]/10 dark:border-[#EDE8E1]/10" aria-label="Main Navigation">
-          {navItems.map(item => {
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onSelectTab(item.id)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
-                  isActive
-                    ? 'bg-[#F8F6F1] dark:bg-[#181614] text-[#29251F] dark:text-[#EDE8E1] shadow-2xs border border-[#29251F]/10 dark:border-[#EDE8E1]/10'
-                    : 'text-[#29251F]/70 dark:text-[#EDE8E1]/70 hover:text-[#29251F] dark:hover:text-[#EDE8E1] hover:bg-[#F8F6F1]/50 dark:hover:bg-[#181614]/50'
-                }`}
-              >
-                {item.icon}
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
-
-        {/* Right Tools: PWA Install, Theme Toggle, Backup */}
-        <div className="flex items-center gap-2">
-          <PWAInstallButton />
-
+    <>
+      <header className="top" id="top">
+        <div className="ngrp">
           <button
             type="button"
-            onClick={() => onSelectTab('backup')}
-            className={`hidden sm:inline-flex items-center text-xs font-semibold px-2.5 py-1.5 rounded-md border transition-colors ${
-              activeTab === 'backup'
-                ? 'bg-[#A68A55] text-white border-[#A68A55]'
-                : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/80 dark:text-[#EDE8E1]/80 hover:bg-[#EAE5DC]/50 dark:hover:bg-[#221F1C]'
-            }`}
-            title="Backup & Restore user data"
+            className="mark"
+            onClick={() => handleNav('home')}
+            aria-label="chord home"
+          >
+            ♯1
+          </button>
+          <button
+            type="button"
+            className="nl micro"
+            onClick={() => handleNav('trainer')}
+            aria-current={activeTab === 'trainer' ? 'page' : undefined}
+          >
+            Train
+          </button>
+          <button
+            type="button"
+            className="nl micro"
+            onClick={() => handleNav('quiz')}
+            aria-current={activeTab === 'quiz' ? 'page' : undefined}
+          >
+            Quiz
+          </button>
+        </div>
+
+        <div className="ngrp">
+          <button
+            type="button"
+            className="nl micro"
+            onClick={() => handleNav('collections')}
+            aria-current={activeTab === 'collections' ? 'page' : undefined}
+          >
+            Collections
+          </button>
+          <button
+            type="button"
+            className="nl micro"
+            onClick={() => handleNav('progress')}
+            aria-current={activeTab === 'progress' ? 'page' : undefined}
+          >
+            Progress
+          </button>
+          <button
+            type="button"
+            className="nl micro"
+            onClick={() => handleNav('bookmarks')}
+            aria-current={activeTab === 'bookmarks' ? 'page' : undefined}
+          >
+            Bookmarks
+          </button>
+          <button
+            type="button"
+            className="nl micro"
+            onClick={() => handleNav('history')}
+            aria-current={activeTab === 'history' ? 'page' : undefined}
+          >
+            History
+          </button>
+          <button
+            type="button"
+            className="nl micro"
+            onClick={() => handleNav('backup')}
+            aria-current={activeTab === 'backup' ? 'page' : undefined}
           >
             Backup
           </button>
 
+          {/* Theme button */}
           <button
             type="button"
             onClick={toggleTheme}
-            className="p-1.5 rounded-md text-[#29251F]/70 dark:text-[#EDE8E1]/70 hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] border border-[#29251F]/10 dark:border-[#EDE8E1]/10 transition-colors"
-            title={`Current theme: ${preferences.theme}. Click to toggle.`}
-            aria-label="Toggle visual theme"
+            className="nl micro hide-m"
+            title={`Current theme: ${preferences.theme}. Click to switch.`}
+            aria-label={`Current theme: ${preferences.theme}. Click to switch.`}
           >
-            {preferences.theme === 'light' ? (
-              <Sun className="w-4 h-4 text-[#A68A55]" />
-            ) : preferences.theme === 'dark' ? (
-              <Moon className="w-4 h-4 text-[#CBB07E]" />
-            ) : (
-              <Laptop className="w-4 h-4 text-[#29251F]/80 dark:text-[#EDE8E1]/80" />
-            )}
+            {preferences.theme === 'dark' ? 'Light' : 'Dark'}
+          </button>
+
+          {/* PWA Install Button */}
+          <div className="hide-m">
+            <PWAInstallButton />
+          </div>
+
+          {/* Mobile hamburger button */}
+          <button
+            type="button"
+            className="menu-btn"
+            onClick={() => setMenuOpen(true)}
+            aria-label="Open menu"
+            aria-expanded={menuOpen}
+          >
+            <i></i>
           </button>
         </div>
-      </div>
-    </header>
+      </header>
+
+      {/* Fullscreen Mobile Navigation Sheet Drawer */}
+      {menuOpen && (
+        <div className="sheet" role="dialog" aria-modal="true" aria-label="Menu">
+          <div className="row-top">
+            <span className="mark">♯1</span>
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className="micro"
+                style={{ minHeight: '44px', padding: '0 8px' }}
+              >
+                {preferences.theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+              </button>
+              <button
+                type="button"
+                className="micro"
+                onClick={() => setMenuOpen(false)}
+                style={{ minHeight: '44px', padding: '0 8px' }}
+                autoFocus
+              >
+                Close ✕
+              </button>
+            </div>
+          </div>
+          <nav>
+            {navItems.map(item => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleNav(item.id)}
+              >
+                <span>{item.label.toLowerCase()}.</span>
+                <span className="micro">{item.num}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="mt-auto flex items-center justify-between pt-6 border-t border-[var(--line)]">
+            <span className="micro muted">Chord training · offline-first</span>
+            <PWAInstallButton />
+          </div>
+        </div>
+      )}
+    </>
   );
 };
