@@ -88,7 +88,7 @@ button:focus-visible, a:focus-visible, input:focus-visible {
   left: 8px;
   top: -60px;
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
   padding: 12px 16px;
   z-index: 100;
   font-weight: 700;
@@ -307,12 +307,12 @@ main {
   min-height: 52px;
   padding: 0 20px;
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
   font-weight: 800;
   font-size: .8rem;
   letter-spacing: .12em;
   text-transform: uppercase;
-  transition: transform .15s, background .15s;
+  transition: transform .15s, background .15s, color .15s;
 }
 
 .btn:hover {
@@ -321,7 +321,7 @@ main {
 
 .btn.acc-bg {
   background: var(--accent);
-  color: var(--ink);
+  color: #111111;
 }
 
 .btn.acc-bg:hover {
@@ -336,7 +336,7 @@ main {
 
 .btn.ghost:hover {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
 }
 
 .btn[disabled] {
@@ -733,6 +733,8 @@ main {
   display: flex;
   flex-wrap: wrap;
   gap: 0;
+  width: fit-content;
+  max-width: 100%;
 }
 
 .seg button {
@@ -748,16 +750,19 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  transition: background .12s;
+  transition: background .12s, color .12s;
+  color: var(--ink);
+  background: transparent;
 }
 
 .seg button:hover {
   background: var(--paper);
 }
 
-.seg button[aria-pressed="true"] {
+.seg button[aria-pressed="true"],
+.seg button[aria-pressed="true"]:hover {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
 }
 
 .seg button[aria-pressed="true"]::before {
@@ -768,8 +773,9 @@ main {
 
 .keys {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+  grid-template-columns: repeat(6, 1fr);
   gap: 0;
+  max-width: 540px;
 }
 
 .keys button {
@@ -778,21 +784,44 @@ main {
   margin: 0 -1px -1px 0;
   font-family: var(--display);
   font-weight: 700;
-  font-size: 1.4rem;
   letter-spacing: -.04em;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
-  transition: background .12s;
+  line-height: 1.05;
+  padding: 6px 4px;
+  transition: background .12s, color .12s;
+  color: var(--ink);
+  background: transparent;
+}
+
+.keys button .key-main {
+  font-size: 1.35rem;
+  font-weight: 700;
+  display: block;
+  color: inherit;
+}
+
+.keys button .key-sub {
+  font-size: .68rem;
+  font-family: var(--body);
+  font-weight: 700;
+  opacity: .75;
+  margin-top: 2px;
+  display: block;
+  letter-spacing: 0;
+  color: inherit;
 }
 
 .keys button:hover {
   background: var(--paper);
 }
 
-.keys button[aria-pressed="true"] {
+.keys button[aria-pressed="true"],
+.keys button[aria-pressed="true"]:hover {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
   box-shadow: inset 0 -6px 0 var(--accent);
 }
 
@@ -809,6 +838,7 @@ main {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 0;
+  max-width: 620px;
 }
 
 .degs button {
@@ -821,7 +851,9 @@ main {
   justify-content: center;
   gap: 2px;
   padding: 4px 2px;
-  transition: background .12s;
+  transition: background .12s, color .12s;
+  color: var(--ink);
+  background: transparent;
 }
 
 .degs button:hover {
@@ -833,18 +865,20 @@ main {
   font-weight: 700;
   font-size: 1.3rem;
   letter-spacing: -.04em;
+  color: inherit;
 }
 
 .degs .c {
   font-size: .74rem;
   font-weight: 700;
   color: inherit;
-  opacity: .8;
+  opacity: .85;
 }
 
-.degs button[aria-pressed="true"] {
+.degs button[aria-pressed="true"],
+.degs button[aria-pressed="true"]:hover {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
   box-shadow: inset 0 -5px 0 var(--accent);
 }
 
@@ -852,6 +886,9 @@ main {
   display: inline-flex;
   align-items: center;
   border: 1px solid var(--ink);
+  justify-self: start;
+  width: fit-content;
+  max-width: 220px;
 }
 
 .stepper button {
@@ -863,11 +900,14 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
+  color: var(--ink);
+  background: transparent;
+  transition: background .12s, color .12s;
 }
 
 .stepper button:hover {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
 }
 
 .stepper output,
@@ -879,6 +919,7 @@ main {
   line-height: 48px;
   font-variant-numeric: tabular-nums;
   display: inline-block;
+  color: var(--ink);
 }
 
 /* Session shared layout */
@@ -983,7 +1024,7 @@ main {
 
 .notes-line span.bass {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
 }
 
 .s-right {
@@ -1032,7 +1073,7 @@ main {
 
 .s-right .cover button {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
   min-height: 56px;
   padding: 0 24px;
 }
@@ -1077,7 +1118,7 @@ main {
 
 .bar .next {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
   border: 0;
   font-family: var(--display);
   font-size: clamp(1.6rem, 3vw, 2.6rem);
@@ -1088,7 +1129,7 @@ main {
 }
 
 .bar .next:hover {
-  background: #000;
+  opacity: .92;
   padding-left: 36px;
 }
 
@@ -1121,9 +1162,10 @@ main {
   background: var(--paper);
 }
 
-.tools button[aria-pressed="true"] {
+.tools button[aria-pressed="true"],
+.tools button[aria-pressed="true"]:hover {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
 }
 
 .count {
@@ -1284,9 +1326,10 @@ main {
   letter-spacing: -.04em;
 }
 
-.mc button[aria-pressed="true"] {
+.mc button[aria-pressed="true"],
+.mc button[aria-pressed="true"]:hover {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
 }
 
 .mc button[aria-pressed="true"] .m::before {
@@ -1604,7 +1647,7 @@ main {
 
 .lrow .x:hover {
   background: var(--ink);
-  color: #fff;
+  color: var(--canvas);
 }
 
 .prog {

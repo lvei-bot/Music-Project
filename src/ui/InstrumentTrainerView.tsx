@@ -825,8 +825,11 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
                                 enabledPitchClasses: [k.pitchClass],
                               }));
                             }}
+                            aria-label={`Key ${k.fullName}`}
+                            title={k.fullName}
                           >
-                            {k.label}
+                            <span className="key-main">{k.primaryName}</span>
+                            {k.enharmonicName && <span className="key-sub">{k.enharmonicName}</span>}
                           </button>
                         );
                       })}
@@ -971,32 +974,34 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
                   <>
                     <div className="setting">
                       <div className="lab micro">Interval</div>
-                      <div className="stepper">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSettings(prev => ({
-                              ...prev,
-                              autoIntervalSeconds: Math.max(1, prev.autoIntervalSeconds - 1),
-                            }))
-                          }
-                          aria-label="Decrease interval"
-                        >
-                          −
-                        </button>
-                        <span className="val">{settings.autoIntervalSeconds}s</span>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setSettings(prev => ({
-                              ...prev,
-                              autoIntervalSeconds: Math.min(20, prev.autoIntervalSeconds + 1),
-                            }))
-                          }
-                          aria-label="Increase interval"
-                        >
-                          +
-                        </button>
+                      <div>
+                        <div className="stepper">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSettings(prev => ({
+                                ...prev,
+                                autoIntervalSeconds: Math.max(1, prev.autoIntervalSeconds - 1),
+                              }))
+                            }
+                            aria-label="Decrease interval"
+                          >
+                            −
+                          </button>
+                          <span className="val">{settings.autoIntervalSeconds}s</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSettings(prev => ({
+                                ...prev,
+                                autoIntervalSeconds: Math.min(20, prev.autoIntervalSeconds + 1),
+                              }))
+                            }
+                            aria-label="Increase interval"
+                          >
+                            +
+                          </button>
+                        </div>
                       </div>
                     </div>
 

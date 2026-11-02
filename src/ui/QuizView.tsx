@@ -852,7 +852,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 <button
                   type="button"
                   onClick={handlePracticeSelected}
-                  className="btn !min-h-[44px] !px-4 !text-xs !bg-[var(--ink)] !text-white"
+                  className="btn !min-h-[44px] !px-4 !text-xs !bg-[var(--ink)] !text-[var(--canvas)]"
                 >
                   Practice {selectedQuestionsForPractice.size} Selected →
                 </button>
@@ -1024,9 +1024,11 @@ export const QuizView: React.FC<QuizViewProps> = ({
                             type="button"
                             aria-pressed={isSelected}
                             onClick={() => handleToggleKey(k.pitchClass)}
-                            aria-label={`Key ${k.label}`}
+                            aria-label={`Key ${k.fullName}`}
+                            title={k.fullName}
                           >
-                            {k.label}
+                            <span className="key-main">{k.primaryName}</span>
+                            {k.enharmonicName && <span className="key-sub">{k.enharmonicName}</span>}
                           </button>
                         );
                       })}
@@ -1191,32 +1193,34 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
                 <div className="setting">
                   <div className="lab micro">Questions</div>
-                  <div className="stepper">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSettings(prev => ({
-                          ...prev,
-                          questionCountLimit: Math.max(5, prev.questionCountLimit - 5),
-                        }))
-                      }
-                      aria-label="Decrease question count"
-                    >
-                      −
-                    </button>
-                    <span className="val">{settings.questionCountLimit}</span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setSettings(prev => ({
-                          ...prev,
-                          questionCountLimit: Math.min(50, prev.questionCountLimit + 5),
-                        }))
-                      }
-                      aria-label="Increase question count"
-                    >
-                      +
-                    </button>
+                  <div>
+                    <div className="stepper">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettings(prev => ({
+                            ...prev,
+                            questionCountLimit: Math.max(5, prev.questionCountLimit - 5),
+                          }))
+                        }
+                        aria-label="Decrease question count"
+                      >
+                        −
+                      </button>
+                      <span className="val">{settings.questionCountLimit}</span>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setSettings(prev => ({
+                            ...prev,
+                            questionCountLimit: Math.min(50, prev.questionCountLimit + 5),
+                          }))
+                        }
+                        aria-label="Increase question count"
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -99,21 +99,22 @@ export interface KeyDisplayInfo {
   primaryName: string;
   enharmonicName?: string;
   fullName: string;
+  label: string;
 }
 
 export const KEY_DISPLAY_LIST: KeyDisplayInfo[] = [
-  { pitchClass: 0, primaryName: 'C', fullName: 'C' },
-  { pitchClass: 1, primaryName: 'D♭', enharmonicName: 'C♯', fullName: 'D♭ / C♯' },
-  { pitchClass: 2, primaryName: 'D', fullName: 'D' },
-  { pitchClass: 3, primaryName: 'E♭', enharmonicName: 'D♯', fullName: 'E♭ / D♯' },
-  { pitchClass: 4, primaryName: 'E', fullName: 'E' },
-  { pitchClass: 5, primaryName: 'F', fullName: 'F' },
-  { pitchClass: 6, primaryName: 'F♯', enharmonicName: 'G♭', fullName: 'F♯ / G♭' },
-  { pitchClass: 7, primaryName: 'G', fullName: 'G' },
-  { pitchClass: 8, primaryName: 'A♭', enharmonicName: 'G♯', fullName: 'A♭ / G♯' },
-  { pitchClass: 9, primaryName: 'A', fullName: 'A' },
-  { pitchClass: 10, primaryName: 'B♭', enharmonicName: 'A♯', fullName: 'B♭ / A♯' },
-  { pitchClass: 11, primaryName: 'B', fullName: 'B' },
+  { pitchClass: 0, primaryName: 'C', fullName: 'C', label: 'C' },
+  { pitchClass: 1, primaryName: 'D♭', enharmonicName: 'C♯', fullName: 'D♭ / C♯', label: 'D♭' },
+  { pitchClass: 2, primaryName: 'D', fullName: 'D', label: 'D' },
+  { pitchClass: 3, primaryName: 'E♭', enharmonicName: 'D♯', fullName: 'E♭ / D♯', label: 'E♭' },
+  { pitchClass: 4, primaryName: 'E', fullName: 'E', label: 'E' },
+  { pitchClass: 5, primaryName: 'F', fullName: 'F', label: 'F' },
+  { pitchClass: 6, primaryName: 'F♯', enharmonicName: 'G♭', fullName: 'F♯ / G♭', label: 'F♯' },
+  { pitchClass: 7, primaryName: 'G', fullName: 'G', label: 'G' },
+  { pitchClass: 8, primaryName: 'A♭', enharmonicName: 'G♯', fullName: 'A♭ / G♯', label: 'A♭' },
+  { pitchClass: 9, primaryName: 'A', fullName: 'A', label: 'A' },
+  { pitchClass: 10, primaryName: 'B♭', enharmonicName: 'A♯', fullName: 'B♭ / A♯', label: 'B♭' },
+  { pitchClass: 11, primaryName: 'B', fullName: 'B', label: 'B' },
 ];
 
 /**
