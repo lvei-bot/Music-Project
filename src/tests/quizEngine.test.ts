@@ -5,8 +5,9 @@ import {
   normalizeMusicalText,
   parseUserChordInput,
   generateDistractors,
+  generateQuizQuestions,
 } from '../engine/quizEngine';
-import { buildDiatonicChord } from '../theory/musicEngine';
+import { buildDiatonicChord, getStandardKeyTonic } from '../theory/musicEngine';
 
 describe('Quiz Engine & Grading', () => {
   describe('Musical Text Normalization', () => {
@@ -94,4 +95,201 @@ describe('Quiz Engine & Grading', () => {
       expect(unique.size).toBe(4);
     });
   });
+
+  describe('Key Selection & Question Exclusivity', () => {
+    it('generates questions exclusively from a single fixed key (C)', () => {
+      const questions = generateQuizQuestions({
+        enabledPitchClasses: [0], // C
+        enabledScales: ['major'],
+        questionCount: 40,
+        direction: 'degree_to_chord',
+        answerMode: 'typed',
+      });
+
+      expect(questions.length).toBe(40);
+      for (const q of questions) {
+        expect(q.chord.keyPitchClass).toBe(0);
+        expect(q.keyTonic).toBe('C');
+        expect(q.prompt.subText).toContain('in C Major');
+      }
+    });
+
+    it('generates questions exclusively from a single accidental key (F#)', () => {
+      const questions = generateQuizQuestions({
+        enabledPitchClasses: [6], // F#
+        enabledScales: ['major'],
+        questionCount: 30,
+        direction: 'chord_to_degree',
+        answerMode: 'multiple_choice',
+      });
+
+      expect(questions.length).toBe(30);
+      for (const q of questions) {
+        expect(q.chord.keyPitchClass).toBe(6);
+        expect(q.keyTonic).toBe('F#');
+        expect(q.options).toBeDefined();
+        expect(q.options?.length).toBe(4);
+        expect(q.options).toContain(String(q.degree));
+      }
+    });
+
+    it('generates questions exclusively from multiple selected keys and NEVER unselected keys', () => {
+      const selectedKeys = [2, 7, 9]; // D, G, A
+      const unselectedKeys = [0, 1, 3, 4, 5, 6, 8, 10, 11];
+
+      const questions = generateQuizQuestions({
+        enabledPitchClasses: selectedKeys,
+        enabledScales: ['major', 'natural_minor'],
+        questionCount: 60,
+        direction: 'mixed',
+        answerMode: 'multiple_choice',
+      });
+
+      expect(questions.length).toBe(60);
+      for (const q of questions) {
+        expect(selectedKeys).toContain(q.chord.keyPitchClass);
+        expect(unselectedKeys).not.toContain(q.chord.keyPitchClass);
+      }
+    });
+
+    it('supports selecting all 12 tonic pitch classes', () => {
+      const all12 = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
+      const questions = generateQuizQuestions({
+        enabledPitchClasses: all12,
+        enabledScales: ['major'],
+        questionCount: 50,
+      });
+
+      expect(questions.length).toBe(50);
+      const generatedPCs = new Set(questions.map(q => q.chord.keyPitchClass));
+      // Over 50 questions across 12 keys, multiple distinct keys should appear
+      expect(generatedPCs.size).toBeGreaterThanOrEqual(5);
+    });
+
+    it('prevents generating questions when no keys are selected (empty list)', () => {
+      const questions = generateQuizQuestions({
+        enabledPitchClasses: [],
+        enabledScales: ['major'],
+        questionCount: 10,
+      });
+
+      expect(questions).toEqual([]);
+    });
+
+    it('prevents generating questions when no scales are selected', () => {
+      const questions = generateQuizQuestions({
+        enabledPitchClasses: [0],
+        enabledScales: [],
+        questionCount: 10,
+      });
+
+      expect(questions).toEqual([]);
+    });
+
+    it('works across both question directions and answer modes', () => {
+      const qDegreeToChordTyped = generateQuizQuestions({
+        enabledPitchClasses: [4], // E
+        enabledScales: ['major'],
+        questionCount: 5,
+        direction: 'degree_to_chord',
+        answerMode: 'typed',
+      });
+      for (const q of qDegreeToChordTyped) {
+        expect(q.direction).toBe('degree_to_chord');
+        expect(q.chord.keyPitchClass).toBe(4);
+        expect(q.correctAnswerText).toBe(q.chord.name);
+      }
+
+      const qChordToDegreeMC = generateQuizQuestions({
+        enabledPitchClasses: [4], // E
+        enabledScales: ['major'],
+        questionCount: 5,
+        direction: 'chord_to_degree',
+        answerMode: 'multiple_choice',
+        mcOptionCount: 4,
+      });
+      for (const q of qChordToDegreeMC) {
+        expect(q.direction).toBe('chord_to_degree');
+        expect(q.chord.keyPitchClass).toBe(4);
+        expect(q.correctAnswerText).toBe(String(q.degree));
+        expect(q.options?.length).toBe(4);
+      }
+    });
+  });
+
+  describe('Key Selection & Scale Selection Synergy', () => {
+    it('uses Db tonic for pitch class 1 in Major and C# tonic for pitch class 1 in Minor', () => {
+      const qMajor = generateQuizQuestions({
+        enabledPitchClasses: [1],
+        enabledScales: ['major'],
+        questionCount: 10,
+      });
+      for (const q of qMajor) {
+        expect(q.keyTonic).toBe('Db');
+        expect(q.prompt.subText).toContain('in Db Major');
+      }
+
+      const qMinor = generateQuizQuestions({
+        enabledPitchClasses: [1],
+        enabledScales: ['harmonic_minor'],
+        questionCount: 10,
+      });
+      for (const q of qMinor) {
+        expect(q.keyTonic).toBe('C#');
+        expect(q.prompt.subText).toContain('in C# Harmonic Minor');
+      }
+    });
+
+    it('spells accurate double accidentals in harmonic minor (G# harmonic minor leading tone F##)', () => {
+      // In G# harmonic minor (pc = 8), degree 7 is F##dim7 (vii°7)
+      const q = createQuizQuestion('G#', 'harmonic_minor', 7, 'seventh', 'degree_to_chord', 'typed');
+      expect(q.correctAnswerText).toBe('F##dim7');
+      expect(q.chord.romanNumeral).toBe('vii°7');
+      expect(q.chord.notes.map(n => n.formatted)).toEqual(['F##', 'A#', 'C#', 'E']);
+
+      // Accepts F##dim7, Fxdim7, F𝄪dim7, and 12-TET enharmonic Gdim7
+      expect(gradeQuizAnswer(q, 'F##dim7').isCorrect).toBe(true);
+      expect(gradeQuizAnswer(q, 'Fxdim7').isCorrect).toBe(true);
+      expect(gradeQuizAnswer(q, 'F𝄪dim7').isCorrect).toBe(true);
+      expect(gradeQuizAnswer(q, 'Gdim7').isCorrect).toBe(true);
+    });
+  });
+
+  describe('Key Settings Restoration & Persistence', () => {
+    it('restores custom selected keys correctly when merged with defaults', () => {
+      const defaultSettings = {
+        direction: 'degree_to_chord',
+        answerMode: 'typed',
+        enabledPitchClasses: [0], // C default
+        enabledScales: ['major'],
+        enabledDegrees: [1, 2, 3, 4, 5, 6, 7],
+        chordType: 'triads',
+      };
+
+      const savedUserKeys = {
+        enabledPitchClasses: [1, 4, 11], // Db, E, B
+        enabledScales: ['major', 'harmonic_minor'],
+      };
+
+      const restoredSettings = {
+        ...defaultSettings,
+        ...savedUserKeys,
+      };
+
+      expect(restoredSettings.enabledPitchClasses).toEqual([1, 4, 11]);
+      expect(restoredSettings.enabledScales).toEqual(['major', 'harmonic_minor']);
+      expect(restoredSettings.chordType).toBe('triads');
+
+      // Verify questions generated from restored settings only use keys [1, 4, 11]
+      const questions = generateQuizQuestions({
+        enabledPitchClasses: restoredSettings.enabledPitchClasses,
+        enabledScales: restoredSettings.enabledScales as any,
+        questionCount: 30,
+      });
+      for (const q of questions) {
+        expect([1, 4, 11]).toContain(q.chord.keyPitchClass);
+      }
+    });
+  });
 });
+

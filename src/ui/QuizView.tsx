@@ -28,6 +28,8 @@ import {
   ChordTypeFilter,
   TONICS_BY_PITCH_CLASS,
   formatScaleName,
+  getStandardKeyTonic,
+  KEY_DISPLAY_LIST,
 } from '../theory/musicEngine';
 import {
   QuizQuestion,
@@ -36,6 +38,7 @@ import {
   createQuizQuestion,
   gradeQuizAnswer,
   QuizGradingResult,
+  generateQuizQuestions,
 } from '../engine/quizEngine';
 import { MusicalToolbar } from './MusicalToolbar';
 import {
@@ -46,6 +49,10 @@ import {
   SettingsPreset,
   savePreset,
   deletePreset,
+  getLocalQuizSettings,
+  saveLocalQuizSettings,
+  getSavedQuizSettings,
+  saveSavedQuizSettings,
 } from '../storage/indexedDb';
 import { ConceptMasteryState } from '../learning/masteryModel';
 
@@ -118,11 +125,16 @@ export const QuizView: React.FC<QuizViewProps> = ({
   initialSettings,
   overrideQuestions,
 }) => {
-  const [settings, setSettings] = useState<QuizSettings>({
-    ...DEFAULT_QUIZ_SETTINGS,
-    ...initialSettings,
+  const [settings, setSettings] = useState<QuizSettings>(() => {
+    const local = getLocalQuizSettings();
+    return {
+      ...DEFAULT_QUIZ_SETTINGS,
+      ...(local || {}),
+      ...(initialSettings || {}),
+    };
   });
 
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
   const [quizState, setQuizState] = useState<'setup' | 'active' | 'results'>('setup');
   const [questions, setQuestions] = useState<QuizQuestion[]>([]);
   const [currentIndex, setCurrentIndex] = useState<number>(0);
@@ -152,6 +164,90 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
   const currentQuestion: QuizQuestion | null = questions[currentIndex] || null;
 
+  // Restore saved quiz settings from IndexedDB on mount
+  useEffect(() => {
+    let isMounted = true;
+    getSavedQuizSettings().then(saved => {
+      if (isMounted && saved) {
+        setSettings(prev => ({
+          ...prev,
+          ...saved,
+          ...(initialSettings || {}),
+        }));
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  // Sync if initialSettings prop changes (e.g. from continue last session)
+  useEffect(() => {
+    if (initialSettings) {
+      setSettings(prev => ({ ...prev, ...initialSettings }));
+    }
+  }, [initialSettings]);
+
+  // Persist settings whenever settings state updates
+  useEffect(() => {
+    saveLocalQuizSettings(settings);
+    saveSavedQuizSettings(settings).catch(() => {});
+  }, [settings]);
+
+  // ---------------- KEY SELECTION HELPERS ----------------
+
+  const handleToggleKey = (pc: number) => {
+    setSettings(prev => {
+      const exists = prev.enabledPitchClasses.includes(pc);
+      const next = exists
+        ? prev.enabledPitchClasses.filter(x => x !== pc)
+        : [...prev.enabledPitchClasses, pc].sort((a, b) => a - b);
+      if (next.length > 0) {
+        setValidationMessage(null);
+      }
+      return { ...prev, enabledPitchClasses: next };
+    });
+  };
+
+  const handleSelectAllKeys = () => {
+    setSettings(prev => ({
+      ...prev,
+      enabledPitchClasses: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+    }));
+    setValidationMessage(null);
+  };
+
+  const handleClearAllKeys = () => {
+    setSettings(prev => ({
+      ...prev,
+      enabledPitchClasses: [],
+    }));
+    setValidationMessage('Please select at least one key before starting the quiz.');
+  };
+
+  const handleSelectSingleKey = (pc: number) => {
+    setSettings(prev => ({
+      ...prev,
+      enabledPitchClasses: [pc],
+    }));
+    setValidationMessage(null);
+  };
+
+  const handleToggleScale = (scale: ScaleType) => {
+    setSettings(prev => {
+      const exists = prev.enabledScales.includes(scale);
+      if (exists && prev.enabledScales.length === 1) {
+        setValidationMessage('At least one scale (Major, Natural Minor, or Harmonic Minor) must remain selected.');
+        return prev;
+      }
+      setValidationMessage(null);
+      const next = exists
+        ? prev.enabledScales.filter(s => s !== scale)
+        : [...prev.enabledScales, scale];
+      return { ...prev, enabledScales: next };
+    });
+  };
+
   // ---------------- QUESTION GENERATION ----------------
 
   const generateQuestionList = (): QuizQuestion[] => {
@@ -159,39 +255,36 @@ export const QuizView: React.FC<QuizViewProps> = ({
       return [...overrideQuestions];
     }
 
-    const list: QuizQuestion[] = [];
-    const count = settings.endingMode === 'question_count' ? settings.questionCountLimit : 20;
-
-    const availableTonics = settings.enabledPitchClasses.map(pc => TONICS_BY_PITCH_CLASS[pc]?.major || 'C');
-    const availableScales = settings.enabledScales;
-    const availableDegrees = settings.enabledDegrees;
-
-    for (let i = 0; i < count; i++) {
-      const tonic = availableTonics[Math.floor(Math.random() * availableTonics.length)];
-      const scale = availableScales[Math.floor(Math.random() * availableScales.length)];
-      const degree = availableDegrees[Math.floor(Math.random() * availableDegrees.length)];
-      const chordType = settings.chordType === 'both' ? (Math.random() > 0.5 ? 'triad' : 'seventh') : settings.chordType === 'sevenths' ? 'seventh' : 'triad';
-
-      let dir: QuestionDirection = 'degree_to_chord';
-      if (settings.direction === 'mixed') {
-        dir = Math.random() > 0.5 ? 'degree_to_chord' : 'chord_to_degree';
-      } else {
-        dir = settings.direction;
-      }
-
-      const q = createQuizQuestion(tonic, scale, degree, chordType, dir, settings.answerMode, settings.mcOptionCount);
-      list.push(q);
-    }
-
-    return list;
+    return generateQuizQuestions({
+      enabledPitchClasses: settings.enabledPitchClasses,
+      enabledScales: settings.enabledScales,
+      enabledDegrees: settings.enabledDegrees,
+      chordType: settings.chordType,
+      direction: settings.direction,
+      answerMode: settings.answerMode,
+      mcOptionCount: settings.mcOptionCount,
+      questionCount: settings.endingMode === 'question_count' ? settings.questionCountLimit : 20,
+    });
   };
 
   // ---------------- START QUIZ ----------------
 
   const handleStartQuiz = () => {
+    if (settings.enabledPitchClasses.length === 0) {
+      setValidationMessage('Please select at least one key before starting the quiz.');
+      return;
+    }
+
+    if (settings.enabledScales.length === 0) {
+      setValidationMessage('Please select at least one scale (Major, Natural Minor, or Harmonic Minor) before starting the quiz.');
+      return;
+    }
+
+    setValidationMessage(null);
+
     const list = generateQuestionList();
     if (list.length === 0) {
-      alert('No questions could be generated with current settings.');
+      setValidationMessage('No questions could be generated with the current settings.');
       return;
     }
 
@@ -211,6 +304,77 @@ export const QuizView: React.FC<QuizViewProps> = ({
       setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
     }
 
+    setQuizState('active');
+    setTimeout(() => typedInputRef.current?.focus(), 100);
+  };
+
+  const handleRetryEntireQuiz = () => {
+    const list = generateQuestionList();
+    if (list.length === 0) return;
+    setQuestions(list);
+    setCurrentIndex(0);
+    setTypedAnswer('');
+    setSelectedMCOption(null);
+    setCurrentResult(null);
+    setIsLocked(false);
+    setUsedHintThisQuestion(false);
+    setShowHintText(false);
+    setAttempts([]);
+    setSummaryItems([]);
+    setSelectedQuestionsForPractice(new Set());
+    sessionStartRef.current = Date.now();
+    if (settings.perQuestionTimerSeconds > 0) {
+      setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
+    }
+    setQuizState('active');
+    setTimeout(() => typedInputRef.current?.focus(), 100);
+  };
+
+  const handleRetryIncorrect = () => {
+    const incorrectQuestions = summaryItems
+      .filter(s => !s.isCorrect)
+      .map(s => s.question);
+    if (incorrectQuestions.length === 0) return;
+    setQuestions(incorrectQuestions);
+    setCurrentIndex(0);
+    setTypedAnswer('');
+    setSelectedMCOption(null);
+    setCurrentResult(null);
+    setIsLocked(false);
+    setUsedHintThisQuestion(false);
+    setShowHintText(false);
+    setAttempts([]);
+    setSummaryItems([]);
+    setSelectedQuestionsForPractice(new Set());
+    sessionStartRef.current = Date.now();
+    if (settings.perQuestionTimerSeconds > 0) {
+      setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
+    }
+    setQuizState('active');
+    setTimeout(() => typedInputRef.current?.focus(), 100);
+  };
+
+  const handlePracticeSelected = () => {
+    if (selectedQuestionsForPractice.size === 0) {
+      alert('Please select at least one question to practice.');
+      return;
+    }
+    const practiceSet = Array.from(selectedQuestionsForPractice).map(idx => summaryItems[idx].question);
+    setQuestions(practiceSet);
+    setCurrentIndex(0);
+    setTypedAnswer('');
+    setSelectedMCOption(null);
+    setCurrentResult(null);
+    setIsLocked(false);
+    setUsedHintThisQuestion(false);
+    setShowHintText(false);
+    setAttempts([]);
+    setSummaryItems([]);
+    setSelectedQuestionsForPractice(new Set());
+    sessionStartRef.current = Date.now();
+    if (settings.perQuestionTimerSeconds > 0) {
+      setQuestionTimeRemaining(settings.perQuestionTimerSeconds);
+    }
     setQuizState('active');
     setTimeout(() => typedInputRef.current?.focus(), 100);
   };
@@ -510,28 +674,132 @@ export const QuizView: React.FC<QuizViewProps> = ({
           </div>
         )}
 
-        {/* Setup Configuration */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Validation Warning Banner */}
+        {validationMessage && (
+          <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-semibold flex items-center gap-2.5 animate-in fade-in shadow-xs">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>{validationMessage}</span>
+          </div>
+        )}
+
+        {/* 1. KEY SELECTION SECTION */}
+        <section aria-labelledby="key-selection-heading" className="p-5 sm:p-6 rounded-2xl bg-[#EAE5DC]/25 dark:bg-[#221F1C]/25 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2.5">
+                <h2 id="key-selection-heading" className="font-editorial font-bold text-lg text-[#29251F] dark:text-[#EDE8E1]">
+                  Key Selection
+                </h2>
+                <span
+                  className={`text-[11px] font-bold px-2.5 py-0.5 rounded-full border ${
+                    settings.enabledPitchClasses.length === 0
+                      ? 'bg-red-500/15 border-red-500/30 text-red-600 dark:text-red-400'
+                      : settings.enabledPitchClasses.length === 12
+                        ? 'bg-[#A68A55]/15 border-[#A68A55]/30 text-[#A68A55] dark:text-[#CBB07E]'
+                        : 'bg-[#29251F]/10 dark:bg-[#EDE8E1]/10 border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/80 dark:text-[#EDE8E1]/80'
+                  }`}
+                >
+                  {settings.enabledPitchClasses.length === 0
+                    ? '0 Keys Selected'
+                    : settings.enabledPitchClasses.length === 12
+                      ? 'All 12 Keys Selected'
+                      : settings.enabledPitchClasses.length === 1
+                        ? `Fixed Key: ${KEY_DISPLAY_LIST.find(k => k.pitchClass === settings.enabledPitchClasses[0])?.fullName}`
+                        : `${settings.enabledPitchClasses.length} of 12 Keys Selected`}
+                </span>
+              </div>
+              <p className="text-xs text-[#29251F]/65 dark:text-[#EDE8E1]/65 mt-1">
+                Select one fixed key, multiple keys, or all 12 chromatic tonic pitch classes. Questions will be generated exclusively from your chosen keys.
+              </p>
+            </div>
+
+            {/* Quick Key Selection Controls */}
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={handleSelectAllKeys}
+                className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[#A68A55]/40 text-[#A68A55] dark:text-[#CBB07E] hover:bg-[#A68A55]/10 transition-colors"
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={() => handleSelectSingleKey(0)}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70 hover:bg-[#EAE5DC]/50 dark:hover:bg-[#221F1C]/50 transition-colors"
+                title="Select single fixed key: C"
+              >
+                Fixed C
+              </button>
+              <button
+                type="button"
+                onClick={handleClearAllKeys}
+                className="px-3 py-1.5 text-xs font-semibold rounded-lg border border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70 hover:text-red-500 hover:border-red-300 transition-colors"
+              >
+                Clear All
+              </button>
+            </div>
+          </div>
+
+          {/* Key Buttons Grid (12 pitch classes) */}
+          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2">
+            {KEY_DISPLAY_LIST.map(k => {
+              const isSelected = settings.enabledPitchClasses.includes(k.pitchClass);
+              return (
+                <button
+                  key={k.pitchClass}
+                  type="button"
+                  onClick={() => handleToggleKey(k.pitchClass)}
+                  className={`min-h-12 py-2 px-1 rounded-xl border flex flex-col items-center justify-center transition-all cursor-pointer select-none ${
+                    isSelected
+                      ? 'bg-[#A68A55] text-white border-[#A68A55] shadow-xs ring-2 ring-[#A68A55]/30'
+                      : 'bg-[#F8F6F1] dark:bg-[#181614] border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F] dark:text-[#EDE8E1] hover:border-[#A68A55] hover:bg-[#EAE5DC]/40 dark:hover:bg-[#221F1C]/40'
+                  }`}
+                  aria-pressed={isSelected}
+                  title={`Toggle key ${k.fullName}`}
+                >
+                  <span className="text-base sm:text-sm font-bold font-editorial leading-tight">
+                    {k.primaryName}
+                  </span>
+                  <span className={`text-[10px] leading-tight font-sans ${isSelected ? 'text-white/80' : 'text-[#29251F]/50 dark:text-[#EDE8E1]/50'}`}>
+                    {k.enharmonicName ? k.enharmonicName : ' '}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Zero Keys Validation Notice */}
+          {settings.enabledPitchClasses.length === 0 && (
+            <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-400 text-xs font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>No keys selected. Please select at least one key before starting the quiz.</span>
+            </div>
+          )}
+        </section>
+
+        {/* 2. THREE CONFIGURATION CARDS */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {/* Card A: Question Format */}
           <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
             <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              1. Question Format
+              Question Format
             </h3>
 
             <div>
               <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1.5">
                 Question Direction
               </label>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-3 gap-1.5">
                 {[
-                  { id: 'degree_to_chord', label: 'Degree → Chord' },
-                  { id: 'chord_to_degree', label: 'Chord → Degree' },
+                  { id: 'degree_to_chord', label: 'Deg → Chord' },
+                  { id: 'chord_to_degree', label: 'Chord → Deg' },
                   { id: 'mixed', label: 'Mixed' },
                 ].map(d => (
                   <button
                     key={d.id}
                     type="button"
                     onClick={() => setSettings(s => ({ ...s, direction: d.id as any }))}
-                    className={`py-1.5 px-2 text-xs font-semibold rounded-lg border transition-all ${
+                    className={`py-1.5 px-1.5 text-xs font-semibold rounded-lg border transition-all text-center ${
                       settings.direction === d.id
                         ? 'bg-[#A68A55] text-white border-[#A68A55]'
                         : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
@@ -551,18 +819,18 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setSettings(s => ({ ...s, answerMode: 'typed' }))}
-                  className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
+                  className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all text-center ${
                     settings.answerMode === 'typed'
                       ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
                       : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
                   }`}
                 >
-                  Typed (with Notation Toolbar)
+                  Typed (Notation)
                 </button>
                 <button
                   type="button"
                   onClick={() => setSettings(s => ({ ...s, answerMode: 'multiple_choice' }))}
-                  className={`py-2 px-3 text-xs font-semibold rounded-lg border transition-all ${
+                  className={`py-2 px-2 text-xs font-semibold rounded-lg border transition-all text-center ${
                     settings.answerMode === 'multiple_choice'
                       ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
                       : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
@@ -576,9 +844,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
             {settings.answerMode === 'multiple_choice' && (
               <div>
                 <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
-                  Multiple Choice Options Count
+                  Option Count
                 </label>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-4 gap-1.5">
                   {[2, 3, 4, 6].map(count => (
                     <button
                       key={count}
@@ -590,7 +858,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                           : 'border-[#29251F]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
                       }`}
                     >
-                      {count} Choices
+                      {count}
                     </button>
                   ))}
                 </div>
@@ -598,12 +866,117 @@ export const QuizView: React.FC<QuizViewProps> = ({
             )}
           </div>
 
+          {/* Card B: Scales & Chord Types */}
           <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
             <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
-              2. Session Scope & Ending
+              Scales & Chords
             </h3>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70">
+                  Enabled Scales
+                </label>
+                <span className="text-[10px] text-[#A68A55] font-semibold">
+                  {settings.enabledScales.length} selected
+                </span>
+              </div>
+              <div className="grid grid-cols-1 gap-1.5">
+                {([
+                  { id: 'major', label: 'Major Scale' },
+                  { id: 'natural_minor', label: 'Natural Minor' },
+                  { id: 'harmonic_minor', label: 'Harmonic Minor' },
+                ] as const).map(sc => {
+                  const isChecked = settings.enabledScales.includes(sc.id);
+                  return (
+                    <button
+                      key={sc.id}
+                      type="button"
+                      onClick={() => handleToggleScale(sc.id)}
+                      className={`py-1.5 px-3 text-xs font-semibold rounded-lg border transition-all flex items-center justify-between ${
+                        isChecked
+                          ? 'bg-[#A68A55] text-white border-[#A68A55]'
+                          : 'bg-[#F8F6F1] dark:bg-[#181614] border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
+                      }`}
+                    >
+                      <span>{sc.label}</span>
+                      <span className="text-[10px] opacity-75">{isChecked ? '✓' : ''}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1.5">
+                Diatonic Chord Types
+              </label>
+              <div className="grid grid-cols-3 gap-1.5">
+                {[
+                  { id: 'triads', label: 'Triads' },
+                  { id: 'sevenths', label: '7th Chords' },
+                  { id: 'both', label: 'Both' },
+                ].map(ct => (
+                  <button
+                    key={ct.id}
+                    type="button"
+                    onClick={() => setSettings(s => ({ ...s, chordType: ct.id as any }))}
+                    className={`py-1.5 px-1 text-xs font-semibold rounded-lg border transition-all text-center ${
+                      settings.chordType === ct.id
+                        ? 'bg-[#A68A55] text-white border-[#A68A55]'
+                        : 'border-[#29251F]/15 dark:border-[#EDE8E1]/15 text-[#29251F]/70 dark:text-[#EDE8E1]/70'
+                    }`}
+                  >
+                    {ct.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-[#29251F]/70 dark:text-[#EDE8E1]/70 block mb-1">
+                Scale Degrees
+              </label>
+              <div className="grid grid-cols-7 gap-1">
+                {[1, 2, 3, 4, 5, 6, 7].map(deg => {
+                  const isDegChecked = settings.enabledDegrees.includes(deg);
+                  return (
+                    <button
+                      key={deg}
+                      type="button"
+                      onClick={() => {
+                        setSettings(s => {
+                          const exists = s.enabledDegrees.includes(deg);
+                          if (exists && s.enabledDegrees.length === 1) return s;
+                          return {
+                            ...s,
+                            enabledDegrees: exists
+                              ? s.enabledDegrees.filter(d => d !== deg)
+                              : [...s.enabledDegrees, deg].sort(),
+                          };
+                        });
+                      }}
+                      className={`h-8 text-xs font-bold rounded-lg border ${
+                        isDegChecked
+                          ? 'bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] border-transparent'
+                          : 'border-[#29251F]/15 text-[#29251F]/50 dark:text-[#EDE8E1]/50'
+                      }`}
+                    >
+                      {deg}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+
+          {/* Card C: Session Scope & Ending */}
+          <div className="p-5 rounded-2xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 space-y-4">
+            <h3 className="font-editorial font-bold text-base text-[#29251F] dark:text-[#EDE8E1]">
+              Session & Feedback
+            </h3>
+
+            <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs font-semibold block mb-1">Ending Mode</label>
                 <select
@@ -611,13 +984,13 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   onChange={e => setSettings(s => ({ ...s, endingMode: e.target.value as any }))}
                   className="w-full text-xs font-semibold p-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15"
                 >
-                  <option value="question_count">Question Count Limit</option>
-                  <option value="unlimited">Unlimited / Manual</option>
+                  <option value="question_count">Count Limit</option>
+                  <option value="unlimited">Unlimited</option>
                 </select>
               </div>
 
               <div>
-                <label className="text-xs font-semibold block mb-1">Question Count</label>
+                <label className="text-xs font-semibold block mb-1">Questions</label>
                 <select
                   disabled={settings.endingMode !== 'question_count'}
                   value={settings.questionCountLimit}
@@ -631,9 +1004,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="text-xs font-semibold block mb-1">Per-Question Timer</label>
+                <label className="text-xs font-semibold block mb-1">Timer</label>
                 <select
                   value={settings.perQuestionTimerSeconds}
                   onChange={e => setSettings(s => ({ ...s, perQuestionTimerSeconds: Number(e.target.value) }))}
@@ -648,14 +1021,14 @@ export const QuizView: React.FC<QuizViewProps> = ({
               </div>
 
               <div>
-                <label className="text-xs font-semibold block mb-1">Feedback Style</label>
+                <label className="text-xs font-semibold block mb-1">Feedback</label>
                 <select
                   value={settings.feedbackStyle}
                   onChange={e => setSettings(s => ({ ...s, feedbackStyle: e.target.value as any }))}
                   className="w-full text-xs font-semibold p-2 rounded-lg bg-[#F8F6F1] dark:bg-[#181614] border border-[#29251F]/15"
                 >
-                  <option value="compact">Compact (Chord + Notes)</option>
-                  <option value="expanded">Expanded (Full Derivation)</option>
+                  <option value="compact">Compact</option>
+                  <option value="expanded">Expanded</option>
                 </select>
               </div>
             </div>
@@ -668,7 +1041,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   onChange={e => setSettings(s => ({ ...s, enableHints: e.target.checked }))}
                   className="rounded border-[#29251F]/20 text-[#A68A55]"
                 />
-                <span>Enable Hints (Record hint usage without giving away answers)</span>
+                <span>Enable Hints</span>
               </label>
 
               <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-[#29251F]/80 dark:text-[#EDE8E1]/80">
@@ -678,10 +1051,27 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   onChange={e => setSettings(s => ({ ...s, reintroduceMistakes: e.target.checked }))}
                   className="rounded border-[#29251F]/20 text-[#A68A55]"
                 />
-                <span>Reintroduce Mistakes at end of quiz</span>
+                <span>Reintroduce Mistakes</span>
               </label>
             </div>
           </div>
+        </div>
+
+        {/* Start Quiz Footer CTA */}
+        <div className="flex flex-col items-center gap-2 pt-2">
+          <button
+            onClick={handleStartQuiz}
+            type="button"
+            className="w-full sm:w-auto px-10 py-3.5 text-sm font-bold rounded-xl bg-[#A68A55] text-white hover:bg-[#8e7443] flex items-center justify-center gap-2.5 shadow-md transition-all active:scale-98"
+          >
+            <Play className="w-4 h-4 fill-current" />
+            <span>Start Quiz Session</span>
+          </button>
+          {settings.enabledPitchClasses.length === 0 && (
+            <p className="text-xs text-red-500 font-semibold">
+              Please select at least one key above to start.
+            </p>
+          )}
         </div>
 
         {/* Save Preset Modal */}
@@ -1051,20 +1441,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
               Select All Mistakes
             </button>
             <button
-              onClick={() => {
-                if (selectedQuestionsForPractice.size === 0) {
-                  alert('Please select at least one question to practice.');
-                  return;
-                }
-                const practiceSet = Array.from(selectedQuestionsForPractice).map(idx => summaryItems[idx].question);
-                setQuestions(practiceSet);
-                setCurrentIndex(0);
-                setAttempts([]);
-                setSummaryItems([]);
-                setQuizState('active');
-              }}
+              onClick={handlePracticeSelected}
               type="button"
-              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-[#A68A55] text-white hover:bg-[#8e7443]"
+              disabled={selectedQuestionsForPractice.size === 0}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg bg-[#A68A55] text-white hover:bg-[#8e7443] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               Practice Selected ({selectedQuestionsForPractice.size})
             </button>
@@ -1121,13 +1501,33 @@ export const QuizView: React.FC<QuizViewProps> = ({
         </div>
       </div>
 
-      <div className="pt-4 flex justify-center">
+      <div className="pt-6 border-t border-[#29251F]/15 dark:border-[#EDE8E1]/15 flex flex-wrap items-center justify-center gap-3">
+        <button
+          onClick={handleRetryEntireQuiz}
+          type="button"
+          className="px-5 py-2.5 text-xs font-bold rounded-lg bg-[#A68A55] text-white hover:bg-[#8e7443] flex items-center gap-1.5 shadow-xs transition-colors"
+        >
+          <RotateCcw className="w-3.5 h-3.5" />
+          <span>Retry Entire Quiz</span>
+        </button>
+
+        {wrongCount > 0 && (
+          <button
+            onClick={handleRetryIncorrect}
+            type="button"
+            className="px-5 py-2.5 text-xs font-bold rounded-lg bg-[#B85D19] dark:bg-[#D47732] text-white hover:opacity-90 flex items-center gap-1.5 shadow-xs transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Retry Incorrect ({wrongCount})</span>
+          </button>
+        )}
+
         <button
           onClick={() => setQuizState('setup')}
           type="button"
-          className="px-6 py-2.5 text-xs font-bold rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] hover:bg-black dark:hover:bg-white transition-colors"
+          className="px-5 py-2.5 text-xs font-bold rounded-lg border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] transition-colors"
         >
-          New Quiz Session
+          <span>Change Settings / Setup</span>
         </button>
       </div>
     </div>

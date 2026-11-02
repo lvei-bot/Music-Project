@@ -78,6 +78,45 @@ export const TONICS_BY_PITCH_CLASS: Record<number, { major: string; minor: strin
 };
 
 /**
+ * Resolve standard, musically correct tonic spelling for a given pitch class and scale type.
+ */
+export function getStandardKeyTonic(pitchClass: number, scaleType: ScaleType): string {
+  const pc = ((pitchClass % 12) + 12) % 12;
+  const info = TONICS_BY_PITCH_CLASS[pc];
+  if (!info) return 'C';
+  if (scaleType === 'major') {
+    return info.major;
+  }
+  // For minor scales:
+  if (pc === 3 && info.altMinor) {
+    return info.altMinor; // 'Eb' minor (6 flats)
+  }
+  return info.minor;
+}
+
+export interface KeyDisplayInfo {
+  pitchClass: number;
+  primaryName: string;
+  enharmonicName?: string;
+  fullName: string;
+}
+
+export const KEY_DISPLAY_LIST: KeyDisplayInfo[] = [
+  { pitchClass: 0, primaryName: 'C', fullName: 'C' },
+  { pitchClass: 1, primaryName: 'D♭', enharmonicName: 'C♯', fullName: 'D♭ / C♯' },
+  { pitchClass: 2, primaryName: 'D', fullName: 'D' },
+  { pitchClass: 3, primaryName: 'E♭', enharmonicName: 'D♯', fullName: 'E♭ / D♯' },
+  { pitchClass: 4, primaryName: 'E', fullName: 'E' },
+  { pitchClass: 5, primaryName: 'F', fullName: 'F' },
+  { pitchClass: 6, primaryName: 'F♯', enharmonicName: 'G♭', fullName: 'F♯ / G♭' },
+  { pitchClass: 7, primaryName: 'G', fullName: 'G' },
+  { pitchClass: 8, primaryName: 'A♭', enharmonicName: 'G♯', fullName: 'A♭ / G♯' },
+  { pitchClass: 9, primaryName: 'A', fullName: 'A' },
+  { pitchClass: 10, primaryName: 'B♭', enharmonicName: 'A♯', fullName: 'B♭ / A♯' },
+  { pitchClass: 11, primaryName: 'B', fullName: 'B' },
+];
+
+/**
  * Parse a note string into letter and accidental
  */
 export function parseNoteString(str: string): { letter: 'C'|'D'|'E'|'F'|'G'|'A'|'B'; accidental: ''|'#'|'##'|'b'|'bb'; pitchClass: number } | null {

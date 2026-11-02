@@ -6,9 +6,11 @@
 import {
   DiatonicChord,
   ScaleType,
+  ChordTypeFilter,
   buildDiatonicChord,
   parseNoteString,
   formatScaleName,
+  getStandardKeyTonic,
 } from '../theory/musicEngine';
 
 export type QuestionDirection = 'degree_to_chord' | 'chord_to_degree';
@@ -97,6 +99,14 @@ export function createQuizQuestion(
     // Also accept root name if same
     if (chord.rootName !== chord.name) {
       acceptableAnswers.push(chord.rootName.toLowerCase());
+    }
+    // Accept alternate double accidentals spelling (e.g. Fxdim7 for F##dim7)
+    if (chord.name.includes('##')) {
+      acceptableAnswers.push(chord.name.replace(/##/g, 'x').toLowerCase());
+      acceptableAnswers.push(chord.name.replace(/##/g, '𝄪').toLowerCase());
+    }
+    if (chord.name.includes('bb')) {
+      acceptableAnswers.push(chord.name.replace(/bb/g, '𝄫').toLowerCase());
     }
   } else {
     // chord_to_degree
@@ -231,6 +241,8 @@ export function normalizeMusicalText(input: string): string {
   return input
     .trim()
     .replace(/\s+/g, '') // remove inner whitespace
+    .replace(/𝄪/g, '##')
+    .replace(/𝄫/g, 'bb')
     .replace(/♯/g, '#')
     .replace(/♭/g, 'b')
     .replace(/♮/g, '')
@@ -238,7 +250,9 @@ export function normalizeMusicalText(input: string): string {
     .replace(/ø7?/g, 'm7b5')
     .replace(/°7?/g, 'dim7')
     .replace(/\+maj7/g, 'augmaj7')
-    .replace(/\+/g, 'aug');
+    .replace(/\+/g, 'aug')
+    .replace(/([A-Ga-g])x\b/gi, '$1##')
+    .replace(/([A-Ga-g])x([a-z0-9])/gi, '$1##$2');
 }
 
 /**
@@ -257,11 +271,15 @@ export function parseUserChordInput(input: string): {
   const chordPart = parts[0];
   const bassPart = parts[1] || null;
 
-  // Extract root note: letter + optional accidental
-  const match = chordPart.match(/^([A-Ga-g])([#b]{1,2})?(.*)$/);
+  // Extract root note: letter + optional accidental (including ##, bb, x, 𝄪, 𝄫)
+  const match = chordPart.match(/^([A-Ga-g])([#b]{1,2}|x|X|𝄪|𝄫)?(.*)$/);
   if (!match) return null;
 
-  const noteStr = `${match[1].toUpperCase()}${match[2] || ''}`;
+  let accidentalPart = match[2] || '';
+  if (accidentalPart.toLowerCase() === 'x' || accidentalPart === '𝄪') accidentalPart = '##';
+  if (accidentalPart === '𝄫') accidentalPart = 'bb';
+
+  const noteStr = `${match[1].toUpperCase()}${accidentalPart}`;
   const parsedNote = parseNoteString(noteStr);
   if (!parsedNote) return null;
 
@@ -397,3 +415,62 @@ export function gradeQuizAnswer(question: QuizQuestion, userInput: string): Quiz
     parsedMeaning: parsedUser,
   };
 }
+
+export interface GenerateQuizOptions {
+  enabledPitchClasses: number[];
+  enabledScales: ScaleType[];
+  enabledDegrees?: number[];
+  chordType?: ChordTypeFilter;
+  direction?: QuestionDirection | 'mixed';
+  answerMode?: AnswerMode;
+  mcOptionCount?: number;
+  questionCount?: number;
+}
+
+/**
+ * Generate quiz questions exclusively from selected keys, scales, degrees, and chord types.
+ */
+export function generateQuizQuestions(options: GenerateQuizOptions): QuizQuestion[] {
+  if (!options.enabledPitchClasses || options.enabledPitchClasses.length === 0) {
+    return [];
+  }
+  if (!options.enabledScales || options.enabledScales.length === 0) {
+    return [];
+  }
+
+  const pitchClasses = options.enabledPitchClasses;
+  const scales = options.enabledScales;
+  const degrees = options.enabledDegrees && options.enabledDegrees.length > 0
+    ? options.enabledDegrees
+    : [1, 2, 3, 4, 5, 6, 7];
+  const chordTypeFilter = options.chordType || 'triads';
+  const count = options.questionCount ?? 10;
+  const answerMode = options.answerMode ?? 'typed';
+  const mcOptionCount = options.mcOptionCount ?? 4;
+  const directionSetting = options.direction ?? 'degree_to_chord';
+
+  const list: QuizQuestion[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const pc = pitchClasses[Math.floor(Math.random() * pitchClasses.length)];
+    const scale = scales[Math.floor(Math.random() * scales.length)];
+    const degree = degrees[Math.floor(Math.random() * degrees.length)];
+    const tonic = getStandardKeyTonic(pc, scale);
+
+    const chordType = chordTypeFilter === 'both'
+      ? (Math.random() > 0.5 ? 'triad' : 'seventh')
+      : chordTypeFilter === 'sevenths'
+        ? 'seventh'
+        : 'triad';
+
+    const dir: QuestionDirection = directionSetting === 'mixed'
+      ? (Math.random() > 0.5 ? 'degree_to_chord' : 'chord_to_degree')
+      : directionSetting;
+
+    const q = createQuizQuestion(tonic, scale, degree, chordType, dir, answerMode, mcOptionCount);
+    list.push(q);
+  }
+
+  return list;
+}
+

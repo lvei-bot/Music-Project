@@ -288,6 +288,47 @@ export async function saveUserPreferences(prefs: UserPreferences): Promise<void>
   await db.put('app_state', prefs, 'preferences');
 }
 
+// ---------------- QUIZ SETTINGS PERSISTENCE ----------------
+
+export const LOCAL_QUIZ_SETTINGS_KEY = 'chord_trainer_quiz_settings';
+
+export function getLocalQuizSettings(): any | null {
+  if (typeof window === 'undefined' || !window.localStorage) return null;
+  try {
+    const raw = window.localStorage.getItem(LOCAL_QUIZ_SETTINGS_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLocalQuizSettings(settings: any): void {
+  if (typeof window === 'undefined' || !window.localStorage) return;
+  try {
+    window.localStorage.setItem(LOCAL_QUIZ_SETTINGS_KEY, JSON.stringify(settings));
+  } catch {
+    // ignore
+  }
+}
+
+export async function getSavedQuizSettings(): Promise<any | null> {
+  try {
+    const db = await getDatabase();
+    return (await db.get('app_state', 'quiz_settings')) || null;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveSavedQuizSettings(settings: any): Promise<void> {
+  try {
+    const db = await getDatabase();
+    await db.put('app_state', settings, 'quiz_settings');
+  } catch {
+    // ignore
+  }
+}
+
 // ---------------- BACKUP & RESTORE ----------------
 
 export interface AppBackupData {

@@ -44,6 +44,7 @@ export const MusicalToolbar: React.FC<MusicalToolbarProps> = ({
 
   const chordButtons = [
     { label: '♯', text: '♯', desc: 'Sharp symbol' },
+    { label: '𝄪', text: '𝄪', desc: 'Double sharp symbol' },
     { label: '♭', text: '♭', desc: 'Flat symbol' },
     { label: '♮', text: '♮', desc: 'Natural symbol' },
     { label: '°', text: '°', desc: 'Diminished degree / symbol' },

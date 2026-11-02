@@ -114,6 +114,8 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
   });
 
   const [sessionState, setSessionState] = useState<'setup' | 'countdown' | 'active' | 'expired' | 'completed'>('setup');
+  const [completedSession, setCompletedSession] = useState<CompletedSessionRecord | null>(null);
+  const [isEnding, setIsEnding] = useState<boolean>(false);
   const [countdownRemaining, setCountdownRemaining] = useState<number>(3);
   const [isPaused, setIsPaused] = useState<boolean>(false);
   const [showInSessionSettings, setShowInSessionSettings] = useState<boolean>(false);
@@ -260,6 +262,8 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     setCumulativeExtensionMinutes(0);
     setChordRemainingMs(settings.autoIntervalSeconds * 1000);
     setIsPaused(false);
+    setCompletedSession(null);
+    setIsEnding(false);
 
     sessionStartTimeRef.current = Date.now();
     lastActiveTimestampRef.current = Date.now();
@@ -314,30 +318,32 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     }
   };
 
-  const handleToggleBookmark = async () => {
-    if (!currentChord) return;
-    if (isBookmarked) {
-      const existing = bookmarks.find(b => b.chordName === currentChord.name && b.keyTonic === currentChord.keyTonic);
-      if (existing) {
-        await deleteBookmark(existing.id);
-        onRefreshBookmarks();
-      }
+  const handleToggleBookmarkForChord = async (chord: DiatonicChord) => {
+    const existing = bookmarks.find(b => b.chordName === chord.name && b.keyTonic === chord.keyTonic);
+    if (existing) {
+      await deleteBookmark(existing.id);
+      onRefreshBookmarks();
     } else {
       const newBk: DifficultChordBookmark = {
         id: `bk_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        chordName: currentChord.name,
-        keyTonic: currentChord.keyTonic,
-        scaleType: currentChord.scaleType,
-        degree: currentChord.degree,
-        quality: currentChord.quality,
-        romanNumeral: currentChord.romanNumeral,
-        notes: currentChord.notes.map(n => n.formatted),
+        chordName: chord.name,
+        keyTonic: chord.keyTonic,
+        scaleType: chord.scaleType,
+        degree: chord.degree,
+        quality: chord.quality,
+        romanNumeral: chord.romanNumeral,
+        notes: chord.notes.map(n => n.formatted),
         createdAt: Date.now(),
         mastered: false,
       };
       await saveBookmark(newBk);
       onRefreshBookmarks();
     }
+  };
+
+  const handleToggleBookmark = async () => {
+    if (!currentChord) return;
+    await handleToggleBookmarkForChord(currentChord);
   };
 
   const handleExtendSession = (additionalMinutes: number) => {
@@ -348,30 +354,43 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
   };
 
   const handleEndSession = async () => {
-    const now = Date.now();
-    const finalWallClock = Math.floor((now - sessionStartTimeRef.current) / 1000);
-    const finalActive = Math.floor(activeElapsedMs / 1000);
-    const finalPaused = Math.floor(pausedElapsedMs / 1000);
+    if (isEnding) return;
+    setIsEnding(true);
+    setIsPaused(true);
 
-    const record: CompletedSessionRecord = {
-      id: `session_inst_${Date.now()}`,
-      mode: 'instrument',
-      startedAt: sessionStartTimeRef.current,
-      completedAt: now,
-      activeDurationSeconds: finalActive,
-      pausedDurationSeconds: finalPaused,
-      wallClockDurationSeconds: finalWallClock,
-      settingsSnapshot: { ...settings },
-      summary: {
-        totalItems: chordHistory.length,
-      },
-      excludedFromAnalytics: false,
-    };
+    try {
+      const now = Date.now();
+      const startTime = sessionStartTimeRef.current || now;
+      const finalWallClock = Math.max(1, Math.floor((now - startTime) / 1000));
+      const finalActive = Math.floor(activeElapsedMs / 1000);
+      const finalPaused = Math.floor(pausedElapsedMs / 1000);
 
-    await saveCompletedSession(record, []);
-    await saveActiveRecovery(null);
-    onSessionComplete(record);
-    setSessionState('completed');
+      const record: CompletedSessionRecord = {
+        id: `session_inst_${Date.now()}`,
+        mode: 'instrument',
+        startedAt: startTime,
+        completedAt: now,
+        activeDurationSeconds: finalActive,
+        pausedDurationSeconds: finalPaused,
+        wallClockDurationSeconds: finalWallClock,
+        settingsSnapshot: { ...settings },
+        summary: {
+          totalItems: chordHistory.length,
+        },
+        excludedFromAnalytics: false,
+      };
+
+      await saveCompletedSession(record, []);
+      await saveActiveRecovery(null);
+      setCompletedSession(record);
+      setSessionState('completed');
+      onSessionComplete(record);
+    } catch (err) {
+      console.error('Error ending instrument trainer session:', err);
+      setSessionState('completed');
+    } finally {
+      setIsEnding(false);
+    }
   };
 
   // ---------------- AUTO-PAUSE & LIFECYCLE ----------------
@@ -927,6 +946,187 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     );
   }
 
+  // ---------------- COMPLETED SESSION RESULTS VIEW ----------------
+  if (sessionState === 'completed') {
+    const finalActiveSec = completedSession?.activeDurationSeconds ?? Math.floor(activeElapsedMs / 1000);
+    const finalPausedSec = completedSession?.pausedDurationSeconds ?? Math.floor(pausedElapsedMs / 1000);
+    const finalWallClockSec = completedSession?.wallClockDurationSeconds ?? Math.max(1, Math.floor((Date.now() - sessionStartTimeRef.current) / 1000));
+    const totalCount = chordHistory.length;
+    const avgSecPerChord = totalCount > 0 ? (finalActiveSec / totalCount).toFixed(1) : '0';
+
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-8 space-y-8 animate-in fade-in duration-200">
+        <div className="border-b border-[#29251F]/15 dark:border-[#EDE8E1]/15 pb-6 text-center space-y-2">
+          <div className="flex items-center justify-center gap-2 text-xs font-semibold uppercase tracking-wider text-[#A68A55] dark:text-[#CBB07E]">
+            <span>Mode A</span>
+            <span>•</span>
+            <span>Session Completed</span>
+          </div>
+          <h1 className="font-editorial text-3xl sm:text-4xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
+            Instrument Practice Summary
+          </h1>
+          <p className="text-xs sm:text-sm text-[#29251F]/70 dark:text-[#EDE8E1]/70 max-w-xl mx-auto">
+            Session recorded successfully. Review the chords practiced below or bookmark any challenging voicings for focused repetition.
+          </p>
+        </div>
+
+        {/* 4-Card Performance Metric Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
+            <span className="text-[10px] font-bold uppercase text-[#29251F]/60 dark:text-[#EDE8E1]/60 block mb-1">
+              Chords Practiced
+            </span>
+            <span className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
+              {totalCount}
+            </span>
+            <span className="text-[10px] text-[#29251F]/50 dark:text-[#EDE8E1]/50 block mt-1">
+              {settings.chordType === 'triads' ? 'Triads' : settings.chordType === 'sevenths' ? 'Sevenths' : 'Mixed chords'}
+            </span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
+            <span className="text-[10px] font-bold uppercase text-[#A68A55] dark:text-[#CBB07E] block mb-1">
+              Active Practice Time
+            </span>
+            <span className="font-editorial text-3xl font-bold text-[#A68A55] dark:text-[#CBB07E]">
+              {formatDurationMs(finalActiveSec * 1000)}
+            </span>
+            <span className="text-[10px] text-[#29251F]/50 dark:text-[#EDE8E1]/50 block mt-1">
+              Hands-on instrument
+            </span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
+            <span className="text-[10px] font-bold uppercase text-[#29251F]/60 dark:text-[#EDE8E1]/60 block mb-1">
+              Paused Time
+            </span>
+            <span className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
+              {formatDurationMs(finalPausedSec * 1000)}
+            </span>
+            <span className="text-[10px] text-[#29251F]/50 dark:text-[#EDE8E1]/50 block mt-1">
+              Frozen timers
+            </span>
+          </div>
+
+          <div className="p-4 rounded-xl bg-[#EAE5DC]/30 dark:bg-[#221F1C]/30 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 text-center">
+            <span className="text-[10px] font-bold uppercase text-[#29251F]/60 dark:text-[#EDE8E1]/60 block mb-1">
+              Average Pace
+            </span>
+            <span className="font-editorial text-3xl font-bold text-[#29251F] dark:text-[#EDE8E1]">
+              {avgSecPerChord}s
+            </span>
+            <span className="text-[10px] text-[#29251F]/50 dark:text-[#EDE8E1]/50 block mt-1">
+              Sec per chord
+            </span>
+          </div>
+        </div>
+
+        {/* Configuration Recap */}
+        <div className="p-4 rounded-xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10">
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-[#29251F]/70 dark:text-[#EDE8E1]/70">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+              <div>
+                <span className="font-semibold text-[#29251F] dark:text-[#EDE8E1]">Keys: </span>
+                {settings.enabledPitchClasses.map(pc => TONICS_BY_PITCH_CLASS[pc]?.major || 'C').join(', ')}
+              </div>
+              <div>
+                <span className="font-semibold text-[#29251F] dark:text-[#EDE8E1]">Scales: </span>
+                {settings.enabledScales.map(formatScaleName).join(', ')}
+              </div>
+              <div>
+                <span className="font-semibold text-[#29251F] dark:text-[#EDE8E1]">Pacing: </span>
+                {settings.progressionMode === 'auto' ? `Auto (${settings.autoIntervalSeconds}s)` : 'Manual step'}
+              </div>
+            </div>
+            <div className="text-[11px] text-[#29251F]/50 dark:text-[#EDE8E1]/50">
+              Total wall clock: {formatDurationMs(finalWallClockSec * 1000)}
+            </div>
+          </div>
+        </div>
+
+        {/* Chords Practiced Exercise Review */}
+        <div className="space-y-4">
+          <div className="flex items-center justify-between border-b border-[#29251F]/10 dark:border-[#EDE8E1]/10 pb-3">
+            <div>
+              <h2 className="font-editorial text-lg font-bold text-[#29251F] dark:text-[#EDE8E1]">
+                Chords Practiced ({chordHistory.length})
+              </h2>
+              <p className="text-xs text-[#29251F]/60 dark:text-[#EDE8E1]/60">
+                Click bookmark on any chord to save it to your Difficult Chords list for focused practice.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {chordHistory.map((chord, idx) => {
+              const chordBookmarked = bookmarks.some(
+                b => b.chordName === chord.name && b.keyTonic === chord.keyTonic
+              );
+              return (
+                <div
+                  key={`${chord.name}_${chord.keyTonic}_${idx}`}
+                  className="p-3.5 rounded-xl bg-[#EAE5DC]/20 dark:bg-[#221F1C]/20 border border-[#29251F]/10 dark:border-[#EDE8E1]/10 flex items-center justify-between gap-3 hover:border-[#A68A55]/40 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] font-mono text-[#29251F]/40 dark:text-[#EDE8E1]/40">
+                        #{idx + 1}
+                      </span>
+                      <span className="font-editorial font-bold text-lg text-[#29251F] dark:text-[#EDE8E1]">
+                        {chord.name}
+                      </span>
+                      <span className="text-xs font-semibold text-[#A68A55] dark:text-[#CBB07E]">
+                        {chord.romanNumeral}
+                      </span>
+                    </div>
+                    <div className="text-xs text-[#29251F]/60 dark:text-[#EDE8E1]/60 mt-0.5">
+                      Key of {chord.keyTonic} {formatScaleName(chord.scaleType)} • Degree {chord.degree}
+                    </div>
+                    <div className="text-[11px] font-mono text-[#29251F]/70 dark:text-[#EDE8E1]/70 mt-1">
+                      {chord.notes.map(n => n.formatted).join(' · ')}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleToggleBookmarkForChord(chord)}
+                    type="button"
+                    className="p-2 rounded-lg text-[#29251F]/60 dark:text-[#EDE8E1]/60 hover:text-[#A68A55] transition-colors shrink-0"
+                    title={chordBookmarked ? 'Bookmarked (click to remove)' : 'Add to Difficult Chords bookmarks'}
+                  >
+                    {chordBookmarked ? (
+                      <BookmarkCheck className="w-4 h-4 text-[#A68A55]" />
+                    ) : (
+                      <Bookmark className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Action Controls */}
+        <div className="flex flex-wrap items-center justify-between gap-4 pt-4 border-t border-[#29251F]/15 dark:border-[#EDE8E1]/15">
+          <button
+            onClick={() => setSessionState('setup')}
+            type="button"
+            className="px-5 py-2.5 text-xs font-bold rounded-lg border border-[#29251F]/20 dark:border-[#EDE8E1]/20 text-[#29251F] dark:text-[#EDE8E1] hover:bg-[#EAE5DC] dark:hover:bg-[#221F1C] transition-colors"
+          >
+            Change Settings / Setup
+          </button>
+
+          <button
+            onClick={handleStartSession}
+            type="button"
+            className="px-6 py-2.5 text-xs font-bold rounded-lg bg-[#29251F] dark:bg-[#EDE8E1] text-[#F8F6F1] dark:text-[#181614] hover:bg-black dark:hover:bg-white transition-colors shadow-xs"
+          >
+            Practice Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ---------------- ACTIVE OR EXPIRED SESSION VIEW ----------------
   const totalAllowanceMs = settings.plannedDurationMinutes
     ? (settings.plannedDurationMinutes + cumulativeExtensionMinutes) * 60 * 1000
@@ -1028,10 +1228,11 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
             </button>
             <button
               onClick={handleEndSession}
+              disabled={isEnding}
               type="button"
-              className="px-4 py-1.5 text-xs font-bold rounded-md bg-[#2D7A4D] dark:bg-[#48A66C] text-white"
+              className="px-4 py-1.5 text-xs font-bold rounded-md bg-[#2D7A4D] dark:bg-[#48A66C] text-white disabled:opacity-50"
             >
-              Finish Session
+              {isEnding ? 'Finishing...' : 'Finish Session'}
             </button>
           </div>
         </div>
@@ -1158,10 +1359,11 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
 
           <button
             onClick={handleEndSession}
+            disabled={isEnding}
             type="button"
-            className="px-3 py-2 text-xs font-semibold rounded-lg text-red-600 dark:text-red-400 hover:bg-red-500/10 transition-colors"
+            className="px-3 py-2 text-xs font-semibold rounded-lg text-red-600 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50 transition-colors flex items-center gap-1.5"
           >
-            End Session
+            {isEnding ? 'Ending...' : 'End Session'}
           </button>
         </div>
       </div>
