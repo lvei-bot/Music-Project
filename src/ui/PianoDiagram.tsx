@@ -74,7 +74,7 @@ export const PianoDiagram: React.FC<PianoDiagramProps> = ({ chord, className }) 
               fontSize="11"
               fill="#fff"
             >
-              {note.spelling}
+              {note.formatted || note.spelling}
             </text>
             {isBass && (
               <rect
@@ -119,14 +119,15 @@ export const PianoDiagram: React.FC<PianoDiagramProps> = ({ chord, className }) 
             fontSize="9.5"
             fill="#111"
           >
-            {note.spelling}
+            {note.formatted || note.spelling}
           </text>
         )}
       </g>
     );
   }
 
-  const label = `Keyboard showing ${chord.notes.map(n => n.spelling).join(', ')}, bass ${chord.bassNote.spelling}`;
+  const bassNote = chord.bassNote || chord.bass;
+  const label = `Keyboard showing ${chord.notes.map(n => n.formatted || n.spelling).join(', ')}, bass ${bassNote.formatted || bassNote.spelling}`;
 
   return (
     <div className={className}>

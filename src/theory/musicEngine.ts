@@ -15,6 +15,7 @@ export interface NoteSpelling {
   accidental: '' | '#' | '##' | 'b' | 'bb';
   pitchClass: number; // 0..11
   formatted: string; // e.g. "C#", "Bb", "Fx"
+  spelling?: string; // Aliased for compatibility
 }
 
 export interface DiatonicChord {
@@ -27,6 +28,7 @@ export interface DiatonicChord {
   inversion: InversionType;
   root: NoteSpelling;
   bass: NoteSpelling;
+  bassNote?: NoteSpelling; // Aliased for compatibility
   notes: NoteSpelling[];
   quality: string; // e.g. "Major", "Minor", "Diminished", "Dominant 7th"
   qualityCode: 'maj' | 'min' | 'dim' | 'aug' | 'maj7' | '7' | 'min7' | 'minmaj7' | 'm7b5' | 'dim7' | 'augmaj7';
@@ -120,7 +122,7 @@ export const KEY_DISPLAY_LIST: KeyDisplayInfo[] = [
 /**
  * Parse a note string into letter and accidental
  */
-export function parseNoteString(str: string): { letter: 'C'|'D'|'E'|'F'|'G'|'A'|'B'; accidental: ''|'#'|'##'|'b'|'bb'; pitchClass: number } | null {
+export function parseNoteString(str: string): NoteSpelling | null {
   const trimmed = str.trim();
   if (!trimmed) return null;
   const letter = trimmed[0].toUpperCase() as 'C'|'D'|'E'|'F'|'G'|'A'|'B';
@@ -142,7 +144,8 @@ export function parseNoteString(str: string): { letter: 'C'|'D'|'E'|'F'|'G'|'A'|
   else if (accidental === 'bb') pc -= 2;
   pc = (pc + 120) % 12;
 
-  return { letter, accidental, pitchClass: pc };
+  const formatted = `${letter}${accidental}`;
+  return { letter, accidental, pitchClass: pc, formatted, spelling: formatted };
 }
 
 /**
@@ -338,9 +341,10 @@ export function buildDiatonicChord(
     degree,
     chordType,
     inversion,
-    root,
-    bass,
-    notes: chordNotes,
+    root: { ...root, spelling: root.formatted },
+    bass: { ...bass, spelling: bass.formatted },
+    bassNote: { ...bass, spelling: bass.formatted },
+    notes: chordNotes.map(n => ({ ...n, spelling: n.formatted })),
     quality,
     qualityCode,
     name: fullName,
@@ -431,11 +435,17 @@ export function areChordsEquivalent(a: DiatonicChord, b: DiatonicChord): boolean
 /**
  * Format scale name for clean UI presentation
  */
-export function formatScaleName(scaleType: ScaleType): string {
+export function formatScaleName(scaleType: ScaleType | string): string {
   switch (scaleType) {
     case 'major': return 'Major';
-    case 'natural_minor': return 'Natural Minor';
-    case 'harmonic_minor': return 'Harmonic Minor';
+    case 'natural_minor':
+    case 'minor':
+      return 'Natural Minor';
+    case 'harmonic_minor':
+    case 'harmonic':
+      return 'Harmonic Minor';
+    default:
+      return String(scaleType);
   }
 }
 

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --canvas: #F3F3F1;
   --surface: #F8F8F6;
@@ -11,10 +13,23 @@
   --accent-hover: #E73C23;
   --success: #236E50;
   --error: #A32922;
+
+  /* Control variables (Light theme) */
+  --ctrl-bg: transparent;
+  --ctrl-text: #111111;
+  --ctrl-border: #111111;
+  --ctrl-hover-bg: #FFFFFF;
+  --ctrl-sub: #5F5F5D;
+
+  --ctrl-active-bg: #111111;
+  --ctrl-active-text: #F3F3F1;
+  --ctrl-active-border: #111111;
+  --ctrl-active-sub: rgba(243, 243, 241, 0.85);
+
   --top-h: 76px;
   --content-max: 1320px;
   --pad: clamp(16px, 3.6vw, 48px);
-  --display: "Space Grotesk", "Grotesk", system-ui, sans-serif;
+  --display: "Space Grotesk", "Grotesk", "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", system-ui, sans-serif;
   --body: "Manrope", "Segoe UI Symbol", "Apple Symbols", "Noto Sans Symbols 2", system-ui, sans-serif;
 }
 
@@ -29,6 +44,20 @@
   --accent-hover: #FF705B;
   --success: #38A169;
   --error: #E53E3E;
+
+  /* Control variables (Dark theme) */
+  /* Unselected: dark background, subtle border, light text (#F3F3F1) */
+  --ctrl-bg: #191919;
+  --ctrl-text: #F3F3F1;
+  --ctrl-border: #3A3A38;
+  --ctrl-hover-bg: #262624;
+  --ctrl-sub: #8E8E8C;
+
+  /* Selected: light background (#F3F3F1), dark text (#111111) */
+  --ctrl-active-bg: #F3F3F1;
+  --ctrl-active-text: #111111;
+  --ctrl-active-border: #F3F3F1;
+  --ctrl-active-sub: #333333;
 }
 
 *, *::before, *::after {
@@ -626,9 +655,14 @@ main {
   margin-top: 28px;
   padding: 18px 20px;
   background: var(--accent);
-  color: var(--ink);
+  color: #111111 !important;
   transition: background .15s, transform .15s;
   text-align: left;
+}
+
+.start .micro,
+.start .big {
+  color: #111111 !important;
 }
 
 .start:hover {
@@ -645,9 +679,14 @@ main {
 }
 
 .start[disabled] {
-  background: var(--line);
+  background: var(--line) !important;
   pointer-events: none;
-  color: var(--muted);
+  color: var(--muted) !important;
+}
+
+.start[disabled] .micro,
+.start[disabled] .big {
+  color: var(--muted) !important;
 }
 
 .warn {
@@ -741,7 +780,7 @@ main {
   min-height: 48px;
   min-width: 48px;
   padding: 0 18px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--ctrl-border);
   margin: 0 -1px -1px 0;
   font-weight: 800;
   font-size: .78rem;
@@ -750,19 +789,27 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  transition: background .12s, color .12s;
-  color: var(--ink);
-  background: transparent;
+  transition: background .12s, color .12s, border-color .12s;
+  color: var(--ctrl-text) !important;
+  background: var(--ctrl-bg);
 }
 
 .seg button:hover {
-  background: var(--paper);
+  background: var(--ctrl-hover-bg);
+  color: var(--ctrl-text) !important;
+}
+
+.seg button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+  z-index: 2;
 }
 
 .seg button[aria-pressed="true"],
 .seg button[aria-pressed="true"]:hover {
-  background: var(--ink);
-  color: var(--canvas);
+  background: var(--ctrl-active-bg) !important;
+  color: var(--ctrl-active-text) !important;
+  border-color: var(--ctrl-active-border);
 }
 
 .seg button[aria-pressed="true"]::before {
@@ -780,7 +827,7 @@ main {
 
 .keys button {
   min-height: 58px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--ctrl-border);
   margin: 0 -1px -1px 0;
   font-family: var(--display);
   font-weight: 700;
@@ -791,38 +838,54 @@ main {
   justify-content: center;
   line-height: 1.05;
   padding: 6px 4px;
-  transition: background .12s, color .12s;
-  color: var(--ink);
-  background: transparent;
+  transition: background .12s, color .12s, border-color .12s;
+  color: var(--ctrl-text) !important;
+  background: var(--ctrl-bg);
 }
 
 .keys button .key-main {
   font-size: 1.35rem;
   font-weight: 700;
   display: block;
-  color: inherit;
+  color: inherit !important;
 }
 
 .keys button .key-sub {
   font-size: .68rem;
   font-family: var(--body);
   font-weight: 700;
-  opacity: .75;
+  opacity: .85;
   margin-top: 2px;
   display: block;
   letter-spacing: 0;
-  color: inherit;
+  color: var(--ctrl-sub) !important;
 }
 
 .keys button:hover {
-  background: var(--paper);
+  background: var(--ctrl-hover-bg);
+  color: var(--ctrl-text) !important;
+}
+
+.keys button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+  z-index: 2;
 }
 
 .keys button[aria-pressed="true"],
 .keys button[aria-pressed="true"]:hover {
-  background: var(--ink);
-  color: var(--canvas);
+  background: var(--ctrl-active-bg) !important;
+  color: var(--ctrl-active-text) !important;
+  border-color: var(--ctrl-active-border);
   box-shadow: inset 0 -6px 0 var(--accent);
+}
+
+.keys button[aria-pressed="true"] .key-main {
+  color: var(--ctrl-active-text) !important;
+}
+
+.keys button[aria-pressed="true"] .key-sub {
+  color: var(--ctrl-active-sub) !important;
 }
 
 .keys button.rnd {
@@ -843,7 +906,7 @@ main {
 
 .degs button {
   min-height: 76px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--ctrl-border);
   margin: 0 -1px -1px 0;
   display: flex;
   flex-direction: column;
@@ -851,13 +914,20 @@ main {
   justify-content: center;
   gap: 2px;
   padding: 4px 2px;
-  transition: background .12s, color .12s;
-  color: var(--ink);
-  background: transparent;
+  transition: background .12s, color .12s, border-color .12s;
+  color: var(--ctrl-text) !important;
+  background: var(--ctrl-bg);
 }
 
 .degs button:hover {
-  background: var(--paper);
+  background: var(--ctrl-hover-bg);
+  color: var(--ctrl-text) !important;
+}
+
+.degs button:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: -3px;
+  z-index: 2;
 }
 
 .degs .r {
@@ -865,30 +935,40 @@ main {
   font-weight: 700;
   font-size: 1.3rem;
   letter-spacing: -.04em;
-  color: inherit;
+  color: inherit !important;
 }
 
 .degs .c {
   font-size: .74rem;
   font-weight: 700;
-  color: inherit;
-  opacity: .85;
+  color: var(--ctrl-sub) !important;
+  opacity: .95;
 }
 
 .degs button[aria-pressed="true"],
 .degs button[aria-pressed="true"]:hover {
-  background: var(--ink);
-  color: var(--canvas);
+  background: var(--ctrl-active-bg) !important;
+  color: var(--ctrl-active-text) !important;
+  border-color: var(--ctrl-active-border);
   box-shadow: inset 0 -5px 0 var(--accent);
+}
+
+.degs button[aria-pressed="true"] .r {
+  color: var(--ctrl-active-text) !important;
+}
+
+.degs button[aria-pressed="true"] .c {
+  color: var(--ctrl-active-sub) !important;
 }
 
 .stepper {
   display: inline-flex;
   align-items: center;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--ctrl-border);
   justify-self: start;
   width: fit-content;
   max-width: 220px;
+  background: var(--ctrl-bg);
 }
 
 .stepper button {
@@ -900,14 +980,19 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--ink);
+  color: var(--ctrl-text) !important;
   background: transparent;
   transition: background .12s, color .12s;
 }
 
 .stepper button:hover {
-  background: var(--ink);
-  color: var(--canvas);
+  background: var(--ctrl-hover-bg);
+  color: var(--ctrl-text) !important;
+}
+
+.stepper button:active {
+  background: var(--ctrl-active-bg);
+  color: var(--ctrl-active-text) !important;
 }
 
 .stepper output,
@@ -915,11 +1000,11 @@ main {
   min-width: 76px;
   text-align: center;
   font-weight: 800;
-  border-inline: 1px solid var(--ink);
+  border-inline: 1px solid var(--ctrl-border);
   line-height: 48px;
   font-variant-numeric: tabular-nums;
   display: inline-block;
-  color: var(--ink);
+  color: var(--ctrl-text) !important;
 }
 
 /* Session shared layout */
@@ -1147,7 +1232,7 @@ main {
 .tools button {
   min-height: 48px;
   padding: 0 16px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--ctrl-border);
   margin: 0 -1px -1px 0;
   font-weight: 800;
   font-size: .72rem;
@@ -1156,16 +1241,21 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  background: var(--ctrl-bg);
+  color: var(--ctrl-text) !important;
+  transition: background .12s, color .12s;
 }
 
 .tools button:hover {
-  background: var(--paper);
+  background: var(--ctrl-hover-bg);
+  color: var(--ctrl-text) !important;
 }
 
 .tools button[aria-pressed="true"],
 .tools button[aria-pressed="true"]:hover {
-  background: var(--ink);
-  color: var(--canvas);
+  background: var(--ctrl-active-bg) !important;
+  color: var(--ctrl-active-text) !important;
+  border-color: var(--ctrl-active-border);
 }
 
 .count {
@@ -1273,7 +1363,7 @@ main {
 .helpers button {
   min-width: 56px;
   min-height: 48px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--ctrl-border);
   margin: 0 -1px -1px 0;
   font-family: var(--display);
   font-weight: 700;
@@ -1281,10 +1371,19 @@ main {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  background: var(--ctrl-bg);
+  color: var(--ctrl-text) !important;
+  transition: background .12s, color .12s;
 }
 
 .helpers button:hover {
-  background: var(--paper);
+  background: var(--ctrl-hover-bg);
+  color: var(--ctrl-text) !important;
+}
+
+.helpers button:active {
+  background: var(--ctrl-active-bg);
+  color: var(--ctrl-active-text) !important;
 }
 
 .helpers .micro {
@@ -1293,7 +1392,7 @@ main {
 }
 
 .mc {
-  border-top: 1px solid var(--ink);
+  border-top: 1px solid var(--line);
 }
 
 .mc button {
@@ -1303,20 +1402,23 @@ main {
   gap: 8px;
   width: 100%;
   min-height: 72px;
-  border-bottom: 1px solid var(--ink);
-  padding: 0 4px;
+  border-bottom: 1px solid var(--line);
+  padding: 0 12px;
+  color: var(--ink);
+  background: transparent;
   transition: background .12s, padding .12s;
 }
 
 .mc button:hover {
   background: var(--surface);
-  padding-left: 12px;
+  padding-left: 18px;
 }
 
 .mc .i {
   font-weight: 800;
   font-size: .8rem;
   letter-spacing: .12em;
+  color: inherit;
 }
 
 .mc .o {
@@ -1324,12 +1426,13 @@ main {
   font-weight: 700;
   font-size: clamp(1.5rem, 2.8vw, 2.4rem);
   letter-spacing: -.04em;
+  color: inherit;
 }
 
 .mc button[aria-pressed="true"],
 .mc button[aria-pressed="true"]:hover {
-  background: var(--ink);
-  color: var(--canvas);
+  background: var(--ctrl-active-bg) !important;
+  color: var(--ctrl-active-text) !important;
 }
 
 .mc button[aria-pressed="true"] .m::before {
@@ -1359,7 +1462,7 @@ main {
 .qtools button {
   min-height: 52px;
   padding: 0 20px;
-  border: 1px solid var(--ink);
+  border: 1px solid var(--ctrl-border);
   margin: 0 -1px -1px 0;
   font-weight: 800;
   font-size: .75rem;
@@ -1368,21 +1471,25 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  transition: background .12s;
+  background: var(--ctrl-bg);
+  color: var(--ctrl-text) !important;
+  transition: background .12s, color .12s;
 }
 
 .qtools button.pri {
-  background: var(--accent);
+  background: var(--accent) !important;
+  color: #111111 !important;
+  border-color: var(--accent);
   flex: 1;
   justify-content: space-between;
 }
 
 .qtools button.pri:hover {
-  background: var(--accent-hover);
+  background: var(--accent-hover) !important;
 }
 
 .qtools button:hover {
-  background: var(--paper);
+  background: var(--ctrl-hover-bg);
 }
 
 .qtools button[disabled] {
@@ -1835,10 +1942,33 @@ main {
   }
   .setting {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: 10px;
   }
   .setting .lab {
     padding-top: 0;
+  }
+  .seg {
+    width: 100%;
+    display: flex;
+    flex-wrap: wrap;
+  }
+  .seg button {
+    flex: 1 1 auto;
+    justify-content: center;
+    min-height: 48px;
+    padding: 0 12px;
+    font-size: .74rem;
+  }
+  .seg-dir {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+  }
+  .seg-dir button {
+    width: 100%;
+    justify-content: flex-start;
+    padding: 0 16px;
+    min-height: 48px;
   }
   .keys {
     grid-template-columns: repeat(4, 1fr);
@@ -1846,14 +1976,45 @@ main {
   .keys button.rnd {
     grid-column: span 4;
   }
+  .degs {
+    width: 100%;
+    max-width: 100%;
+  }
   .degs button {
-    min-height: 68px;
+    min-height: 64px;
+    padding: 3px 1px;
   }
   .degs .c {
-    font-size: .62rem;
+    font-size: clamp(0.55rem, 2.2vw, 0.68rem);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
   }
   .degs .r {
-    font-size: 1.05rem;
+    font-size: clamp(0.95rem, 3.8vw, 1.15rem);
+  }
+  .field input {
+    min-height: 52px;
+    font-size: clamp(1.4rem, 5vw, 1.8rem);
+    padding: 0 14px;
+  }
+  .helpers {
+    margin-top: 8px;
+  }
+  .helpers button {
+    min-width: 48px;
+    min-height: 44px;
+    font-size: 1.2rem;
+  }
+  .chord {
+    font-size: clamp(3rem, 13vw, 5.8rem);
+  }
+  .chord.long {
+    font-size: clamp(2.4rem, 10vw, 4.2rem);
+  }
+  .q-prompt .big {
+    font-size: clamp(3rem, 12vw, 5.6rem);
+    margin: 8px 0 6px;
   }
   .cfg {
     padding-bottom: 140px;
@@ -1981,8 +2142,26 @@ main {
 }
 
 @media (max-width: 380px) {
+  .keys {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .keys button.rnd {
+    grid-column: span 3;
+  }
+  .degs button {
+    min-height: 56px;
+    padding: 2px 1px;
+  }
+  .degs .r {
+    font-size: .95rem;
+  }
   .degs .c {
-    display: none;
+    font-size: .52rem;
+    letter-spacing: -.03em;
+  }
+  .seg button {
+    padding: 0 8px;
+    font-size: .7rem;
   }
 }
 

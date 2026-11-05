@@ -6,6 +6,7 @@ import {
   parseUserChordInput,
   generateDistractors,
   generateQuizQuestions,
+  isValidQuizQuestion,
 } from '../engine/quizEngine';
 import { buildDiatonicChord, getStandardKeyTonic } from '../theory/musicEngine';
 
@@ -289,6 +290,72 @@ describe('Quiz Engine & Grading', () => {
       for (const q of questions) {
         expect([1, 4, 11]).toContain(q.chord.keyPitchClass);
       }
+    });
+  });
+
+  describe('Comprehensive Question Type Validation & No-Undefined Guarantee', () => {
+    it('generates fully valid questions with zero undefined values across all scales, chords, and directions', () => {
+      const scales: ('major' | 'natural_minor' | 'harmonic_minor')[] = ['major', 'natural_minor', 'harmonic_minor'];
+      const chordTypes: ('triads' | 'sevenths' | 'both')[] = ['triads', 'sevenths', 'both'];
+      const directions: ('degree_to_chord' | 'chord_to_degree' | 'mixed')[] = ['degree_to_chord', 'chord_to_degree', 'mixed'];
+      const answerModes: ('typed' | 'multiple_choice')[] = ['typed', 'multiple_choice'];
+
+      for (const scale of scales) {
+        for (const chordType of chordTypes) {
+          for (const direction of directions) {
+            for (const mode of answerModes) {
+              const questions = generateQuizQuestions({
+                enabledPitchClasses: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+                enabledScales: [scale],
+                enabledDegrees: [1, 2, 3, 4, 5, 6, 7],
+                chordType,
+                direction,
+                answerMode: mode,
+                questionCount: 5,
+              });
+
+              expect(questions.length).toBe(5);
+
+              for (const q of questions) {
+                // Must pass strict runtime validator
+                expect(isValidQuizQuestion(q)).toBe(true);
+
+                // Check core properties
+                expect(q.degree).toBeGreaterThanOrEqual(1);
+                expect(q.degree).toBeLessThanOrEqual(7);
+                expect(q.targetDegree).toBe(q.degree);
+                expect(q.chord).toBeDefined();
+                expect(q.chord.name).toBeDefined();
+                expect(q.chord.name).not.toBe('undefined');
+                expect(q.targetChord).toBe(q.chord);
+                expect(q.correctAnswerText).toBeDefined();
+                expect(q.correctAnswerText).not.toBe('undefined');
+                expect(q.correctAnswer).toBe(q.correctAnswerText);
+                expect(q.prompt.primaryText).not.toContain('undefined');
+                expect(q.prompt.subText).not.toContain('undefined');
+
+                if (mode === 'multiple_choice') {
+                  expect(q.options).toBeDefined();
+                  expect(q.options?.length).toBeGreaterThanOrEqual(2);
+                  expect(q.multipleChoiceOptions).toEqual(q.options);
+                  for (const opt of q.options!) {
+                    expect(opt).not.toBe('undefined');
+                    expect(opt.length).toBeGreaterThan(0);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    });
+
+    it('isValidQuizQuestion correctly rejects incomplete or undefined questions', () => {
+      expect(isValidQuizQuestion(null)).toBe(false);
+      expect(isValidQuizQuestion({})).toBe(false);
+      expect(isValidQuizQuestion({ id: '1', degree: undefined, chord: { name: 'C' } })).toBe(false);
+      expect(isValidQuizQuestion({ id: '1', degree: 1, keyTonic: 'C', scaleType: 'major', chord: null })).toBe(false);
+      expect(isValidQuizQuestion({ id: '1', degree: 1, keyTonic: 'C', scaleType: 'major', chord: { name: '' }, correctAnswerText: 'C' })).toBe(false);
     });
   });
 });

@@ -410,9 +410,9 @@ export const QuizView: React.FC<QuizViewProps> = ({
 
     setCurrentResult({
       isCorrect: false,
-      isExactMatch: false,
+      userAnswer: '[Skipped]',
+      canonicalAnswer: currentQuestion.correctAnswerText,
       feedbackMessage: 'Question skipped.',
-      normalizedAnswer: '',
     });
     setIsLocked(true);
   };
@@ -468,14 +468,15 @@ export const QuizView: React.FC<QuizViewProps> = ({
       return;
     }
     const input = typedInputRef.current;
-    const start = input.selectionStart || typedAnswer.length;
-    const end = input.selectionEnd || typedAnswer.length;
+    const start = input.selectionStart ?? typedAnswer.length;
+    const end = input.selectionEnd ?? typedAnswer.length;
     const updated = typedAnswer.substring(0, start) + symbol + typedAnswer.substring(end);
     setTypedAnswer(updated);
-    setTimeout(() => {
+    requestAnimationFrame(() => {
       input.focus();
-      input.setSelectionRange(start + symbol.length, start + symbol.length);
-    }, 10);
+      const nextPos = start + symbol.length;
+      input.setSelectionRange(nextPos, nextPos);
+    });
   };
 
   // Keyboard navigation
@@ -491,10 +492,11 @@ export const QuizView: React.FC<QuizViewProps> = ({
           e.preventDefault();
           handleAdvanceToNext();
         }
-      } else if (settings.answerMode === 'multiple_choice' && !isLocked && /^[1-4]$/.test(e.key)) {
-        if (currentQuestion?.multipleChoiceOptions) {
+      } else if (settings.answerMode === 'multiple_choice' && !isLocked && /^[1-6]$/.test(e.key)) {
+        const opts = currentQuestion?.options || currentQuestion?.multipleChoiceOptions;
+        if (opts) {
           const idx = parseInt(e.key, 10) - 1;
-          const opt = currentQuestion.multipleChoiceOptions[idx];
+          const opt = opts[idx];
           if (opt) {
             setSelectedMCOption(opt);
           }
@@ -509,14 +511,28 @@ export const QuizView: React.FC<QuizViewProps> = ({
   // ---------------- RENDER VIEWS ----------------
 
   // 1. ACTIVE QUIZ SESSION VIEW
-  if (quizState === 'active' && currentQuestion) {
+  if (quizState === 'active') {
+    if (!currentQuestion) {
+      return (
+        <div className="view sess">
+          <div className="empty">
+            <h1 className="display">quiz empty.</h1>
+            <p>No questions could be loaded for this session.</p>
+            <button type="button" className="btn" onClick={() => setQuizState('config')}>
+              Return to settings ←
+            </button>
+          </div>
+        </div>
+      );
+    }
+
     const isD2C = currentQuestion.direction === 'degree_to_chord';
     const bigPromptText = isD2C
-      ? `${currentQuestion.targetDegree}`
-      : currentQuestion.targetChord.name;
+      ? String(currentQuestion.degree)
+      : currentQuestion.chord.name;
     const subtitleText = isD2C
-      ? `Degree ${currentQuestion.targetDegree} · ${currentQuestion.chordType} chord`
-      : `Which degree is this chord in ${currentQuestion.keyTonic} ${formatScaleName(currentQuestion.scaleType).toLowerCase()}?`;
+      ? `Degree ${currentQuestion.degree} (${currentQuestion.chord.romanNumeral}) · ${currentQuestion.chordType} chord in ${currentQuestion.keyTonic} ${formatScaleName(currentQuestion.scaleType)}`
+      : `Which degree is this chord in ${currentQuestion.keyTonic} ${formatScaleName(currentQuestion.scaleType)}?`;
     const promptKicker = isD2C ? 'Name the chord' : 'Name the degree';
 
     const showKeyBadge = settings.showKey !== false;
@@ -562,7 +578,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
             <div className="micro muted">{promptKicker}</div>
             <h1
               className={`display big ${bigPromptText.length > 5 ? 'long' : ''}`}
-              aria-label={isD2C ? `Degree ${currentQuestion.targetDegree}` : currentQuestion.targetChord.name}
+              aria-label={isD2C ? `Degree ${currentQuestion.degree}` : currentQuestion.chord.name}
             >
               {bigPromptText}
             </h1>
@@ -601,6 +617,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                       <button
                         key={s}
                         type="button"
+                        onMouseDown={e => e.preventDefault()}
                         onClick={() => handleInsertSymbol(s)}
                         aria-label={`Insert ${s}`}
                       >
@@ -613,11 +630,12 @@ export const QuizView: React.FC<QuizViewProps> = ({
             ) : (
               /* Multiple Choice Options */
               <div className="mc" role="group" aria-label="Answer choices">
-                {currentQuestion.multipleChoiceOptions?.map((opt, i) => {
+                {(currentQuestion.options || currentQuestion.multipleChoiceOptions)?.map((opt, i) => {
                   const isSelected = selectedMCOption === opt;
                   let cls = '';
+                  const correctAns = currentQuestion.correctAnswerText || currentQuestion.correctAnswer;
                   if (isLocked) {
-                    if (opt === currentQuestion.correctAnswer) cls = 'right';
+                    if (opt === correctAns) cls = 'right';
                     else if (isSelected) cls = 'wrong';
                     else cls = 'dim';
                   }
@@ -710,7 +728,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 <dl className="micro">
                   <dt className="muted">Expected</dt>
                   <dd style={{ textTransform: 'none', letterSpacing: '0', fontSize: '1.05rem' }}>
-                    {currentQuestion.correctAnswer}
+                    {currentQuestion.correctAnswerText || currentQuestion.correctAnswer}
                   </dd>
                   <dt className="muted">You answered</dt>
                   <dd style={{ textTransform: 'none', letterSpacing: '0', fontSize: '1.05rem' }}>
@@ -718,7 +736,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   </dd>
                   <dt className="muted">Notes</dt>
                   <dd style={{ textTransform: 'none', letterSpacing: '0', fontSize: '1.05rem' }}>
-                    {currentQuestion.targetChord.notes.map(n => n.spelling).join(' · ')}
+                    {currentQuestion.chord.notes.map(n => n.formatted || n.spelling).join(' · ')}
                   </dd>
                 </dl>
 
@@ -771,7 +789,10 @@ export const QuizView: React.FC<QuizViewProps> = ({
     summaryItems
       .filter(s => !s.isCorrect)
       .forEach(s => {
-        weakDegreesMap[s.question.targetDegree] = (weakDegreesMap[s.question.targetDegree] || 0) + 1;
+        const d = s.question.degree ?? s.question.targetDegree;
+        if (d) {
+          weakDegreesMap[d] = (weakDegreesMap[d] || 0) + 1;
+        }
       });
     const weakList = Object.keys(weakDegreesMap)
       .map(Number)
@@ -873,9 +894,12 @@ export const QuizView: React.FC<QuizViewProps> = ({
               <tbody>
                 {summaryItems.map((item, i) => {
                   const isD2C = item.question.direction === 'degree_to_chord';
+                  const degVal = item.question.degree ?? item.question.targetDegree;
+                  const chordName = item.question.chord?.name ?? item.question.targetChord?.name ?? '';
+                  const correctVal = item.question.correctAnswerText || item.question.correctAnswer;
                   const qLabel = isD2C
-                    ? `Degree ${item.question.targetDegree} in ${item.question.keyTonic} ${formatScaleName(item.question.scaleType).toLowerCase()}`
-                    : `${item.question.targetChord.name} in ${item.question.keyTonic} ${formatScaleName(item.question.scaleType).toLowerCase()}`;
+                    ? `Degree ${degVal} in ${item.question.keyTonic} ${formatScaleName(item.question.scaleType).toLowerCase()}`
+                    : `${chordName} in ${item.question.keyTonic} ${formatScaleName(item.question.scaleType).toLowerCase()}`;
                   const isChecked = selectedQuestionsForPractice.has(i);
 
                   return (
@@ -888,7 +912,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                       </td>
                       <td className="font-semibold">{qLabel}</td>
                       <td>{item.userAnswer}</td>
-                      <td className="font-bold">{item.question.correctAnswer}</td>
+                      <td className="font-bold">{correctVal}</td>
                       <td>
                         <button
                           type="button"
@@ -919,7 +943,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
     selectedKeysCount === 12
       ? 'All 12 keys'
       : selectedKeysCount === 1
-      ? `${TONICS_BY_PITCH_CLASS[settings.enabledPitchClasses[0]]?.[0] || 'C'} key`
+      ? `${TONICS_BY_PITCH_CLASS[settings.enabledPitchClasses[0]]?.major || 'C'} key`
       : `${selectedKeysCount} keys selected`;
 
   const summaryRows = [
@@ -1000,7 +1024,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                       <button
                         type="button"
                         onClick={handleSelectAllKeys}
-                        className="micro font-bold underline"
+                        className="micro font-bold underline text-[var(--ink)] hover:text-[var(--accent)] cursor-pointer"
                       >
                         Select All
                       </button>
@@ -1008,7 +1032,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                       <button
                         type="button"
                         onClick={handleClearAllKeys}
-                        className="micro font-bold underline"
+                        className="micro font-bold underline text-[var(--ink)] hover:text-[var(--accent)] cursor-pointer"
                       >
                         Clear All
                       </button>
@@ -1040,7 +1064,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                 <div className="setting">
                   <div className="lab micro">Scale</div>
                   <div className="seg" role="group">
-                    {(['major', 'minor', 'harmonic_minor'] as ScaleType[]).map(scale => {
+                    {(['major', 'natural_minor', 'harmonic_minor'] as ScaleType[]).map(scale => {
                       const isSel = settings.enabledScales.includes(scale);
                       return (
                         <button
@@ -1091,7 +1115,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                   <div className="degs" role="group" aria-label="Scale degrees">
                     {[1, 2, 3, 4, 5, 6, 7].map(deg => {
                       const on = settings.enabledDegrees.includes(deg);
-                      const tonicName = TONICS_BY_PITCH_CLASS[settings.enabledPitchClasses[0] || 0]?.[0] || 'C';
+                      const tonicName = TONICS_BY_PITCH_CLASS[settings.enabledPitchClasses[0] ?? 0]?.major || 'C';
                       const scale = settings.enabledScales[0] || 'major';
                       const sampleChord = buildDiatonicChord(
                         tonicName,
@@ -1146,7 +1170,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
               <div className="grp-c">
                 <div className="setting">
                   <div className="lab micro">Direction</div>
-                  <div className="seg" role="group">
+                  <div className="seg seg-dir" role="group">
                     <button
                       type="button"
                       aria-pressed={settings.direction === 'mixed'}
@@ -1365,6 +1389,7 @@ export const QuizView: React.FC<QuizViewProps> = ({
                             mode: 'quiz',
                             name: presetNameInput.trim(),
                             createdAt: Date.now(),
+                            updatedAt: Date.now(),
                             settings: { ...settings },
                           });
                           setPresetNameInput('');

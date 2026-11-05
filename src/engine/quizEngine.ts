@@ -23,9 +23,11 @@ export interface QuizQuestion {
   keyTonic: string;
   scaleType: ScaleType;
   degree: number;
+  targetDegree: number; // Aliased for compatibility
   chordType: 'triad' | 'seventh';
   direction: QuestionDirection;
   chord: DiatonicChord;
+  targetChord: DiatonicChord; // Aliased for compatibility
   prompt: {
     title: string;
     primaryText: string;
@@ -35,8 +37,10 @@ export interface QuizQuestion {
     keyLabel: string;
   };
   correctAnswerText: string;
+  correctAnswer: string; // Aliased for compatibility
   acceptableAnswers: string[];
   options?: string[]; // Multiple choice options
+  multipleChoiceOptions?: string[]; // Aliased for compatibility
   hint: string;
   compactExplanation: string;
   expandedExplanation: string;
@@ -140,9 +144,11 @@ export function createQuizQuestion(
     keyTonic,
     scaleType,
     degree,
+    targetDegree: degree,
     chordType,
     direction,
     chord,
+    targetChord: chord,
     prompt: {
       title: promptTitle,
       primaryText,
@@ -152,12 +158,37 @@ export function createQuizQuestion(
       keyLabel: `${keyTonic} ${scaleName}`,
     },
     correctAnswerText,
+    correctAnswer: correctAnswerText,
     acceptableAnswers,
     options,
+    multipleChoiceOptions: options,
     hint,
     compactExplanation,
     expandedExplanation,
   };
+}
+
+/**
+ * Validates that a generated quiz question contains non-empty, musically valid fields.
+ */
+export function isValidQuizQuestion(q: unknown): q is QuizQuestion {
+  if (!q || typeof q !== 'object') return false;
+  const question = q as QuizQuestion;
+  return (
+    typeof question.id === 'string' &&
+    question.id.length > 0 &&
+    typeof question.degree === 'number' &&
+    question.degree >= 1 &&
+    question.degree <= 7 &&
+    typeof question.keyTonic === 'string' &&
+    question.keyTonic.length > 0 &&
+    typeof question.scaleType === 'string' &&
+    question.chord != null &&
+    typeof question.chord.name === 'string' &&
+    question.chord.name.length > 0 &&
+    typeof question.correctAnswerText === 'string' &&
+    question.correctAnswerText.length > 0
+  );
 }
 
 /**
@@ -468,7 +499,9 @@ export function generateQuizQuestions(options: GenerateQuizOptions): QuizQuestio
       : directionSetting;
 
     const q = createQuizQuestion(tonic, scale, degree, chordType, dir, answerMode, mcOptionCount);
-    list.push(q);
+    if (isValidQuizQuestion(q)) {
+      list.push(q);
+    }
   }
 
   return list;

@@ -6,6 +6,8 @@
 import { openDB, IDBPDatabase } from 'idb';
 import { QuizAttemptRecord, ManualLearningEvent } from '../learning/masteryModel';
 
+export type { QuizAttemptRecord, ManualLearningEvent };
+
 export interface CompletedSessionRecord {
   id: string;
   mode: 'instrument' | 'quiz';
@@ -34,7 +36,7 @@ export interface CustomChordCollection {
   type: 'fixed' | 'transposable';
   referenceKey: string; // e.g. "C"
   chords: string[]; // e.g. ["Cmaj7", "Am7", "Dm7", "G7"]
-  playback: 'sequential' | 'random' | 'shuffled_cycle';
+  playback?: 'sequential' | 'random' | 'shuffled_cycle';
   createdAt: number;
   updatedAt: number;
 }
@@ -380,6 +382,13 @@ export interface BackupValidationResult {
     bookmarksCount: number;
     presetsCount: number;
   };
+  counts?: {
+    sessions: number;
+    quizAttempts: number;
+    collections: number;
+    bookmarks: number;
+    presets: number;
+  };
 }
 
 export function validateBackupData(data: any): BackupValidationResult {
@@ -393,14 +402,27 @@ export function validateBackupData(data: any): BackupValidationResult {
     return { isValid: false, error: 'Malformed backup structure: missing sessions or attempts data.' };
   }
 
+  const sessions = data.sessions.length;
+  const quizAttempts = data.quizAttempts.length;
+  const collections = Array.isArray(data.collections) ? data.collections.length : 0;
+  const bookmarks = Array.isArray(data.bookmarks) ? data.bookmarks.length : 0;
+  const presets = Array.isArray(data.presets) ? data.presets.length : 0;
+
   return {
     isValid: true,
     summary: {
-      sessionsCount: data.sessions.length,
-      attemptsCount: data.quizAttempts.length,
-      collectionsCount: Array.isArray(data.collections) ? data.collections.length : 0,
-      bookmarksCount: Array.isArray(data.bookmarks) ? data.bookmarks.length : 0,
-      presetsCount: Array.isArray(data.presets) ? data.presets.length : 0,
+      sessionsCount: sessions,
+      attemptsCount: quizAttempts,
+      collectionsCount: collections,
+      bookmarksCount: bookmarks,
+      presetsCount: presets,
+    },
+    counts: {
+      sessions,
+      quizAttempts,
+      collections,
+      bookmarks,
+      presets,
     },
   };
 }

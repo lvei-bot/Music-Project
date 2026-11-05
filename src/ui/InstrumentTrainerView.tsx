@@ -148,7 +148,7 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
 
   // Key Selection Helper
   const getTonicName = (pc: number): string => {
-    return TONICS_BY_PITCH_CLASS[pc]?.[0] || 'C';
+    return TONICS_BY_PITCH_CLASS[pc]?.major || 'C';
   };
 
   // Generate Chord based on settings
@@ -162,10 +162,9 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
     // Determine current tonic
     let tonic = 'C';
     if (settings.keyProgression === 'circle_of_fifths') {
-      const circlePc = CIRCLE_OF_FIFTHS[currentKeyIndexRef.current % CIRCLE_OF_FIFTHS.length];
-      tonic = getTonicName(circlePc);
+      tonic = CIRCLE_OF_FIFTHS[currentKeyIndexRef.current % CIRCLE_OF_FIFTHS.length] || 'C';
     } else {
-      const pc = settings.enabledPitchClasses[currentKeyIndexRef.current % settings.enabledPitchClasses.length];
+      const pc = settings.enabledPitchClasses[currentKeyIndexRef.current % (settings.enabledPitchClasses.length || 1)] ?? 0;
       tonic = getTonicName(pc);
     }
 
@@ -841,7 +840,7 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
                 <div className="setting">
                   <div className="lab micro">Scale</div>
                   <div className="seg" role="group">
-                    {(['major', 'minor', 'harmonic_minor'] as ScaleType[]).map(scale => {
+                    {(['major', 'natural_minor', 'harmonic_minor'] as ScaleType[]).map(scale => {
                       const isSel = settings.enabledScales.includes(scale);
                       return (
                         <button
@@ -1164,6 +1163,7 @@ export const InstrumentTrainerView: React.FC<InstrumentTrainerViewProps> = ({
                             mode: 'instrument',
                             name: presetNameInput.trim(),
                             createdAt: Date.now(),
+                            updatedAt: Date.now(),
                             settings: { ...settings },
                           });
                           setPresetNameInput('');

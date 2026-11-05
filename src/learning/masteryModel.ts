@@ -35,8 +35,10 @@ export interface ConceptMasteryState {
   hintedSignals: number; // Pending hinted signals
   independentStreak: number; // Consecutive unhinted correct answers
   totalAttempts: number;
+  lifetimeAttempts?: number; // Aliased for compatibility
   unhintedCorrectCount: number;
   hintedCorrectCount: number;
+  lifetimeCorrect?: number; // Aliased for compatibility
   wrongCount: number;
   skippedCount: number;
   timeoutCount: number;
@@ -44,6 +46,7 @@ export interface ConceptMasteryState {
   dueDate: string | null; // ISO YYYY-MM-DD
   isDue: boolean;
   lastAttemptAt: number | null;
+  lastAttemptTimestamp?: number | null; // Aliased for compatibility
   masteredAt: number | null;
 }
 
@@ -162,6 +165,9 @@ export function reconstructMasteryStates(
 export function applyAttemptRecord(state: ConceptMasteryState, attempt: QuizAttemptRecord) {
   state.totalAttempts += 1;
   state.lastAttemptAt = attempt.timestamp;
+  state.lifetimeAttempts = state.totalAttempts;
+  state.lastAttemptTimestamp = attempt.timestamp;
+  state.lifetimeCorrect = (state.unhintedCorrectCount || 0) + (state.hintedCorrectCount || 0) + (attempt.isCorrect ? 1 : 0);
 
   if (attempt.isSkipped) {
     state.skippedCount += 1;

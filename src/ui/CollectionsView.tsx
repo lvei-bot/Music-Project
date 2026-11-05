@@ -383,6 +383,7 @@ export const CollectionsView: React.FC<CollectionsViewProps> = ({
                   type: newColType,
                   referenceKey: newColRefKey,
                   chords: [],
+                  playback: 'sequential',
                   createdAt: Date.now(),
                   updatedAt: Date.now(),
                 };
@@ -441,6 +442,7 @@ export const CollectionsView: React.FC<CollectionsViewProps> = ({
                   type: 'fixed',
                   referenceKey: 'C',
                   chords: parsed,
+                  playback: 'sequential',
                   createdAt: Date.now(),
                   updatedAt: Date.now(),
                 };

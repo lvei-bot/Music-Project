@@ -69,8 +69,10 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
     if (degMatch) {
       const deg = Number(degMatch[1]);
       if (degreeStats[deg]) {
-        degreeStats[deg].total += c.lifetimeAttempts;
-        degreeStats[deg].correct += c.lifetimeCorrect;
+        const attempts = c.lifetimeAttempts ?? c.totalAttempts ?? 0;
+        const correct = c.lifetimeCorrect ?? ((c.unhintedCorrectCount || 0) + (c.hintedCorrectCount || 0));
+        degreeStats[deg].total += attempts;
+        degreeStats[deg].correct += correct;
       }
     }
   });
@@ -212,12 +214,17 @@ export const ProgressView: React.FC<ProgressViewProps> = ({
                         </span>
                       </td>
                       <td>
-                        {c.lifetimeAttempts > 0
-                          ? `${Math.round((c.lifetimeCorrect / c.lifetimeAttempts) * 100)}% (${c.lifetimeCorrect}/${c.lifetimeAttempts})`
-                          : '—'}
+                        {(() => {
+                          const attempts = c.lifetimeAttempts ?? c.totalAttempts ?? 0;
+                          const correct = c.lifetimeCorrect ?? ((c.unhintedCorrectCount || 0) + (c.hintedCorrectCount || 0));
+                          return attempts > 0 ? `${Math.round((correct / attempts) * 100)}% (${correct}/${attempts})` : '—';
+                        })()}
                       </td>
                       <td className="micro muted">
-                        {c.lastAttemptTimestamp ? new Date(c.lastAttemptTimestamp).toLocaleDateString() : '—'}
+                        {(() => {
+                          const t = c.lastAttemptTimestamp ?? c.lastAttemptAt;
+                          return t ? new Date(t).toLocaleDateString() : '—';
+                        })()}
                       </td>
                     </tr>
                   ))}
